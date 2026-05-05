@@ -899,7 +899,7 @@ export function apply(ctx: Context, config: Config) {
       return message;
     });
 
-  ctx.command('sign/给予 <targetId:string> <itemId:number> <count:number>')
+  ctx.command('sign/给予 <targetId:string> <itemId:number> <count:number>', { authority: 3 })
     .action(async (argv, targetId, itemId, count) => {
       const session = argv.session;
       const senderHandle = await getHandle(session);

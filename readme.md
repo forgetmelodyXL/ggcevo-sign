@@ -35,7 +35,7 @@
 | `sign/兑换 <物品ID>` | 兑换指定物品 |
 | `sign/背包` | 查看背包物品 |
 | `sign/个人信息` | 查看个人签到、抽奖、兑换记录 |
-| `sign/给予 <目标ID> <物品ID> <数量>` | 向其他用户给予物品 |
+| `sign/给予 <目标ID> <物品ID> <数量>` | 向其他用户给予物品（需要权限3） |
 | `sign/抽奖概率` | 查看各奖池抽奖概率 |
 | `sign/签到奖励` | 查看签到奖励说明 |
 | `sign/兑换列表` | 查看可兑换物品列表 |
@@ -78,3 +78,27 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 
 - koishi ^4.18.7
 - koishi-plugin-sc2arcade-search ^1.2.4
+
+## 📃 更新日志
+<details>
+<summary>点我查看更新日志详情</summary>
+
+### ✨ 1.0.2
+  - 新增 sign/抽奖概率 指令
+  - 新增 sign/签到奖励 指令
+  - 新增 sign/兑换列表 指令
+  - 指令前缀从 ggcevo 改为 sign
+
+### ✨ 1.0.1
+  - 修复背包物品重复创建问题
+  - 优化数据库操作
+
+### ✨ 1.0.0
+  - 初始版本发布
+  - 签到系统
+  - 抽奖系统（金币池、普通池、皮肤池、宠物池）
+  - 兑换系统
+  - 背包系统
+  - 个人信息查询
+
+</details>

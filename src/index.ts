@@ -309,6 +309,56 @@ export function apply(ctx: Context, config: Config) {
       return message;
     });
 
+  ctx.command('ggcevo/兑换 <id:number>')
+    .action(async (argv, id) => {
+      const session = argv.session;
+
+      const handle = await getHandle(session);
+      if (!handle) {
+        return '🔒 需要先绑定游戏句柄。';
+      }
+
+      const exchangeItem = ExchangeConfig[id];
+      if (!exchangeItem) {
+        return `❌ 不存在ID为 ${id} 的兑换物品！`;
+      }
+
+      if (exchangeItem.quality === '限定') {
+        return `❌ ${exchangeItem.name} 为限定物品，不可兑换！`;
+      }
+
+      const costMap: Record<string, number> = {
+        't3': 3,
+        't2': 4,
+        't1': 5,
+        't0': 6,
+      };
+      const costCount = costMap[exchangeItem.quality];
+
+      const [couponItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 3 });
+      const couponCount = couponItem?.count || 0;
+
+      if (couponCount < costCount) {
+        return `❌ 兑换券不足！需要 ${costCount} 张兑换券，当前拥有 ${couponCount} 张。`;
+      }
+
+      const newCouponCount = couponCount - costCount;
+      await ctx.database.upsert('ggcevo_backpack', [{
+        user_id: handle, item_id: 3, count: newCouponCount
+      }]);
+
+      const now = new Date();
+      await ctx.database.create('ggcevo_exchange_log', {
+        user_id: handle,
+        exchange_id: id,
+        cost_type: 1,
+        cost_amount: costCount,
+        create_time: now,
+      });
+
+      return `🎁 兑换成功！\n消耗 ${costCount} 张兑换券\n获得 ${exchangeItem.name}（${exchangeItem.quality} - ${exchangeItem.type}）`;
+    });
+
   ctx.command('ggcevo/抽奖')
     .option('poolId', '-p <poolId:number> 抽奖池ID')
     .option('count', '-c <count:number> 抽奖次数')
@@ -328,8 +378,21 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const isGoldPool = poolId === 1;
-      const costItemId = isGoldPool ? 1 : 2;
-      const costPerDraw = isGoldPool ? 100 : 1;
+      const isSkinPool = poolId === 3;
+      const isPetPool = poolId === 4;
+      let costItemId: number;
+      let costPerDraw: number;
+
+      if (isGoldPool) {
+        costItemId = 1;
+        costPerDraw = 100;
+      } else if (isSkinPool || isPetPool) {
+        costItemId = 3;
+        costPerDraw = 3;
+      } else {
+        costItemId = 2;
+        costPerDraw = 1;
+      }
 
       const [costItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: costItemId });
       const costItemCount = costItem?.count || 0;
@@ -342,16 +405,31 @@ export function apply(ctx: Context, config: Config) {
           return '❌ 抽奖次数必须大于0！';
         }
         if (count > maxDrawCount) {
-          const costItemName = isGoldPool ? '金币' : '咕咕币';
+          let costItemName: string;
+          if (isGoldPool) {
+            costItemName = '金币';
+          } else if (isSkinPool || isPetPool) {
+            costItemName = '兑换券';
+          } else {
+            costItemName = '咕咕币';
+          }
           return `❌ ${costItemName}不足，当前拥有 ${costItemCount} ${costItemName}，需要 ${count * costPerDraw} ${costItemName}！`;
         }
         drawCount = count;
       } else {
         if (maxDrawCount <= 0) {
-          const costItemName = isGoldPool ? '金币' : '咕咕币';
+          let costItemName: string;
+          if (isGoldPool) {
+            costItemName = '金币';
+          } else if (isSkinPool || isPetPool) {
+            costItemName = '兑换券';
+          } else {
+            costItemName = '咕咕币';
+          }
           return `❌ ${costItemName}不足，请先获取${costItemName}！`;
         }
-        drawCount = maxDrawCount;
+        const isNormalPool = !isGoldPool && !isSkinPool && !isPetPool;
+        drawCount = isNormalPool ? maxDrawCount : 1;
       }
 
       const now = new Date();
@@ -368,7 +446,10 @@ export function apply(ctx: Context, config: Config) {
       let nothingCount = 0;
 
       for (let i = 0; i < drawCount; i++) {
-        pityCounter++;
+        const isNormalPool = !isGoldPool && !isSkinPool;
+        if (isNormalPool) {
+          pityCounter++;
+        }
 
         let gotSSR = false;
 
@@ -390,9 +471,49 @@ export function apply(ctx: Context, config: Config) {
             rewards.push({ itemId: 9, count: 1 });
             totalMakeupCoupon += 1;
             gotSSR = true;
-            pityCounter = 0;
             rareHitCount++;
           }
+        } else if (isSkinPool) {
+          const skinItems = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '皮肤' && item.quality !== '限定');
+          const t3Skins = skinItems.filter(([_, item]) => item.quality === 't3').map(([id]) => parseInt(id));
+          const t2Skins = skinItems.filter(([_, item]) => item.quality === 't2').map(([id]) => parseInt(id));
+          const t1Skins = skinItems.filter(([_, item]) => item.quality === 't1').map(([id]) => parseInt(id));
+
+          const rand = Math.random() * 100;
+
+          let prizeId: number;
+          if (rand < 70) {
+            prizeId = t3Skins[Math.floor(Math.random() * t3Skins.length)];
+          } else if (rand < 90) {
+            prizeId = t2Skins[Math.floor(Math.random() * t2Skins.length)];
+          } else {
+            prizeId = t1Skins[Math.floor(Math.random() * t1Skins.length)];
+            gotSSR = true;
+            rareHitCount++;
+          }
+          rewards.push({ itemId: prizeId, count: 1 });
+        } else if (isPetPool) {
+          const petItems = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '宠物');
+          const t3Pets = petItems.filter(([_, item]) => item.quality === 't3').map(([id]) => parseInt(id));
+          const t2Pets = petItems.filter(([_, item]) => item.quality === 't2').map(([id]) => parseInt(id));
+          const t1Pets = petItems.filter(([_, item]) => item.quality === 't1').map(([id]) => parseInt(id));
+          const t0Pets = petItems.filter(([_, item]) => item.quality === 't0').map(([id]) => parseInt(id));
+
+          const rand = Math.random() * 100;
+
+          let prizeId: number;
+          if (rand < 65) {
+            prizeId = t3Pets[Math.floor(Math.random() * t3Pets.length)];
+          } else if (rand < 85) {
+            prizeId = t2Pets[Math.floor(Math.random() * t2Pets.length)];
+          } else if (rand < 95) {
+            prizeId = t1Pets[Math.floor(Math.random() * t1Pets.length)];
+          } else {
+            prizeId = t0Pets[Math.floor(Math.random() * t0Pets.length)];
+            gotSSR = true;
+            rareHitCount++;
+          }
+          rewards.push({ itemId: prizeId, count: 1 });
         } else {
           if (pityCounter >= 90) {
             rewards.push({ itemId: 3, count: 1 });
@@ -458,7 +579,32 @@ export function apply(ctx: Context, config: Config) {
         }]);
       }
 
-      const costTypeName = isGoldPool ? 1 : 2;
+      if (isSkinPool || isPetPool) {
+        for (const reward of rewards) {
+          const [existingItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: reward.itemId });
+          const newCount = (existingItem?.count || 0) + reward.count;
+          await ctx.database.upsert('ggcevo_backpack', [{
+            user_id: handle, item_id: reward.itemId, count: newCount
+          }]);
+
+          await ctx.database.create('ggcevo_exchange_log', {
+            user_id: handle,
+            exchange_id: reward.itemId,
+            cost_type: 2,
+            cost_amount: costPerDraw,
+            create_time: now,
+          });
+        }
+      }
+
+      let costTypeName: number;
+      if (isGoldPool) {
+        costTypeName = 1;
+      } else if (isSkinPool || isPetPool) {
+        costTypeName = 1;
+      } else {
+        costTypeName = 2;
+      }
       for (let i = 0; i < drawCount; i++) {
         const reward = rewards[i] || { itemId: 0, count: 0 };
         await ctx.database.create('ggcevo_lottery_log', {
@@ -483,12 +629,57 @@ export function apply(ctx: Context, config: Config) {
         update_time: now,
       }]);
 
-      const costItemName = isGoldPool ? '金币' : '咕咕币';
+      let costItemName: string;
+      if (isGoldPool) {
+        costItemName = '金币';
+      } else if (isSkinPool || isPetPool) {
+        costItemName = '兑换券';
+      } else {
+        costItemName = '咕咕币';
+      }
       let result = `🎰 使用 ${drawCount * costPerDraw} ${costItemName}进行了 ${drawCount} 次${poolName}抽奖！\n`;
-      if (totalGold > 0) result += `💰 获得 ${totalGold} 金币\n`;
-      if (totalCoupon > 0) result += `🎫 获得 ${totalCoupon} 兑换券\n`;
-      if (totalMakeupCoupon > 0) result += `🎟️ 获得 ${totalMakeupCoupon} 补签券\n`;
-      if (nothingCount > 0) result += `💨 ${nothingCount} 次未获得物品\n`;
+
+      if (isSkinPool) {
+        const skinRewards: { name: string; quality: string }[] = [];
+        for (const reward of rewards) {
+          const item = ExchangeConfig[reward.itemId];
+          if (item) {
+            skinRewards.push({ name: item.name, quality: item.quality });
+          }
+        }
+        for (const skin of skinRewards) {
+          let qualityEmoji = '';
+          switch (skin.quality) {
+            case 't1': qualityEmoji = '⭐'; break;
+            case 't2': qualityEmoji = '✨'; break;
+            case 't3': qualityEmoji = '💫'; break;
+          }
+          result += `${qualityEmoji} 获得 ${skin.name}（${skin.quality}）\n`;
+        }
+      } else if (isPetPool) {
+        const petRewards: { name: string; quality: string }[] = [];
+        for (const reward of rewards) {
+          const item = ExchangeConfig[reward.itemId];
+          if (item) {
+            petRewards.push({ name: item.name, quality: item.quality });
+          }
+        }
+        for (const pet of petRewards) {
+          let qualityEmoji = '';
+          switch (pet.quality) {
+            case 't0': qualityEmoji = '👑'; break;
+            case 't1': qualityEmoji = '⭐'; break;
+            case 't2': qualityEmoji = '✨'; break;
+            case 't3': qualityEmoji = '💫'; break;
+          }
+          result += `${qualityEmoji} 获得 ${pet.name}（${pet.quality}）\n`;
+        }
+      } else {
+        if (totalGold > 0) result += `💰 获得 ${totalGold} 金币\n`;
+        if (totalCoupon > 0) result += `🎫 获得 ${totalCoupon} 兑换券\n`;
+        if (totalMakeupCoupon > 0) result += `🎟️ 获得 ${totalMakeupCoupon} 补签券\n`;
+        if (nothingCount > 0) result += `💨 ${nothingCount} 次未获得物品\n`;
+      }
       result += `累计抽奖次数：${newTotalDrawCount}`;
 
       return result;

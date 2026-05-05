@@ -15,11 +15,6 @@ export const ItemConfig: Record<number, string> = {
   1: '金币',
   2: '咕咕币',
   3: '兑换券',
-  4: '扭蛋币',
-  5: 't3级宠物扭蛋',
-  6: 't2级宠物扭蛋',
-  7: 't1级宠物扭蛋',
-  8: 't0级宠物扭蛋',
   9: '补签券',
 }
 
@@ -89,6 +84,7 @@ export interface SigninSummary {
   continuous_days: number //当前连续签到天数（断签则归1或归0）
   last_signin_date: Date //最后一次签到日期（用来判断是否断签）
   update_time: Date //更新时间
+  last_allowance_month: number // 上次领取每月津贴的月份（用于跨月重置）
 }
 
 export interface SigninLog {
@@ -111,7 +107,8 @@ export interface LotteryLog {
 }
 
 export interface LotteryStatus {
-  user_id: string // 主键ID
+  id: number // 主键ID
+  user_id: string //用户ID
   lottery_id: number //奖池ID（区分：普通池、活动池、新手池）
   pity_counter: number // 保底计数器（抽多少次没出SSR了）
   total_draw_count: number // 累计抽奖次数
@@ -125,7 +122,6 @@ export interface ExchangeLog {
   user_id: string //用户ID
   exchange_id: number //兑换物品ID（对应兑换物品模板）
   cost_type: number // 消耗类型（0=免费 1=兑换 2=抽奖）
-  cost_amount: number // 消耗数量
   create_time: Date // 创建时间
 }
 
@@ -157,6 +153,7 @@ export function apply(ctx: Context, config: Config) {
     continuous_days: 'unsigned', //当前连续签到天数（断签则归1或归0）
     last_signin_date: 'timestamp', //最后一次签到日期（用来判断是否断签）
     update_time: 'timestamp', //更新时间
+    last_allowance_month: 'unsigned', // 上次领取每月津贴的月份（用于跨月重置）
   }, {
     primary: 'user_id',
   })
@@ -187,6 +184,7 @@ export function apply(ctx: Context, config: Config) {
   })
 
   ctx.model.extend('ggcevo_lottery_status', {
+    id: 'unsigned',
     user_id: 'string',
     lottery_id: 'unsigned',
     pity_counter: 'unsigned',
@@ -195,7 +193,8 @@ export function apply(ctx: Context, config: Config) {
     rare_hit_count: 'unsigned',
     update_time: 'timestamp',
   }, {
-    primary: 'user_id',
+    primary: 'id',
+    autoInc: true
   })
 
   ctx.model.extend('ggcevo_exchange_log', {
@@ -203,14 +202,13 @@ export function apply(ctx: Context, config: Config) {
     user_id: 'string',
     exchange_id: 'unsigned',
     cost_type: 'unsigned',
-    cost_amount: 'unsigned',
     create_time: 'timestamp',
   }, {
     primary: 'id',
     autoInc: true
   })
 
-  ctx.command('ggcevo/签到')
+  ctx.command('sign/签到')
     .action(async (argv) => {
       const session = argv.session;
       const handle = await getHandle(session);
@@ -233,6 +231,7 @@ export function apply(ctx: Context, config: Config) {
       const goldReward = Math.floor(Math.random() * 11) + 10;
       let gugubReward = 3;
       let extraGugubReward = 0;
+      let monthlyAllowance = 0;
 
       const [summary] = await ctx.database.get('ggcevo_signin_summary', { user_id: handle });
 
@@ -240,6 +239,7 @@ export function apply(ctx: Context, config: Config) {
       let newTotalDays = 1;
       let newMonthDays = 1;
       let newContinuousDays = 1;
+      let lastAllowanceMonth = 0;
 
       if (summary) {
         newTotalDays = summary.total_days + 1;
@@ -259,6 +259,17 @@ export function apply(ctx: Context, config: Config) {
         } else {
           newContinuousDays = 1;
         }
+
+        lastAllowanceMonth = summary.last_allowance_month || 0;
+      }
+
+      const memberInfo = session.event?.member?.roles;
+      const isAdmin = !memberInfo?.some(role => role.name === "member" || role.id === "member");
+
+      if (isAdmin && lastAllowanceMonth !== currentMonth) {
+        monthlyAllowance = 50;
+        gugubReward += monthlyAllowance;
+        lastAllowanceMonth = currentMonth;
       }
 
       const monthRewardConfig: Record<number, number> = {
@@ -281,6 +292,7 @@ export function apply(ctx: Context, config: Config) {
         continuous_days: newContinuousDays,
         last_signin_date: now,
         update_time: now,
+        last_allowance_month: lastAllowanceMonth,
       }]);
 
       await ctx.database.create('ggcevo_signin_log', {
@@ -293,10 +305,17 @@ export function apply(ctx: Context, config: Config) {
 
       const updateBackpackItem = async (itemId: number, count: number) => {
         const [existing] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: itemId });
-        const newCount = existing ? existing.count + count : count;
-        await ctx.database.upsert('ggcevo_backpack', [{
-          user_id: handle, item_id: itemId, count: newCount
-        }]);
+        const newCount = (existing?.count || 0) + count;
+        if (existing) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: existing.id,
+            user_id: handle, item_id: itemId, count: newCount
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: itemId, count: newCount
+          });
+        }
       };
 
       await updateBackpackItem(1, goldReward);
@@ -306,10 +325,13 @@ export function apply(ctx: Context, config: Config) {
       if (extraGugubReward > 0) {
         message += `\n⭐ 本月第${newMonthDays}次签到额外奖励：${extraGugubReward} 咕咕币`;
       }
+      if (monthlyAllowance > 0) {
+        message += `\n💰 每月津贴：+${monthlyAllowance} 咕咕币`;
+      }
       return message;
     });
 
-  ctx.command('ggcevo/兑换 <id:number>')
+  ctx.command('sign/兑换 <id:number>')
     .action(async (argv, id) => {
       const session = argv.session;
 
@@ -343,23 +365,25 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const newCouponCount = couponCount - costCount;
-      await ctx.database.upsert('ggcevo_backpack', [{
-        user_id: handle, item_id: 3, count: newCouponCount
-      }]);
+      if (couponItem) {
+        await ctx.database.upsert('ggcevo_backpack', [{
+          id: couponItem.id,
+          user_id: handle, item_id: 3, count: newCouponCount
+        }]);
+      }
 
       const now = new Date();
       await ctx.database.create('ggcevo_exchange_log', {
         user_id: handle,
         exchange_id: id,
         cost_type: 1,
-        cost_amount: costCount,
         create_time: now,
       });
 
       return `🎁 兑换成功！\n消耗 ${costCount} 张兑换券\n获得 ${exchangeItem.name}（${exchangeItem.quality} - ${exchangeItem.type}）`;
     });
 
-  ctx.command('ggcevo/抽奖')
+  ctx.command('sign/抽奖')
     .option('poolId', '-p <poolId:number> 抽奖池ID')
     .option('count', '-c <count:number> 抽奖次数')
     .action(async (argv) => {
@@ -439,6 +463,12 @@ export function apply(ctx: Context, config: Config) {
       let rareHitCount = lotteryStatus?.rare_hit_count || 0;
       let pityTriggered = false;
 
+      const ownedItems = new Set<number>();
+      const exchangeLogs = await ctx.database.get('ggcevo_exchange_log', { user_id: handle });
+      for (const log of exchangeLogs) {
+        ownedItems.add(log.exchange_id);
+      }
+
       const rewards: { itemId: number; count: number }[] = [];
       let totalGold = 0;
       let totalCoupon = 0;
@@ -475,45 +505,82 @@ export function apply(ctx: Context, config: Config) {
           }
         } else if (isSkinPool) {
           const skinItems = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '皮肤' && item.quality !== '限定');
-          const t3Skins = skinItems.filter(([_, item]) => item.quality === 't3').map(([id]) => parseInt(id));
-          const t2Skins = skinItems.filter(([_, item]) => item.quality === 't2').map(([id]) => parseInt(id));
-          const t1Skins = skinItems.filter(([_, item]) => item.quality === 't1').map(([id]) => parseInt(id));
+          let t3Skins = skinItems.filter(([_, item]) => item.quality === 't3').map(([id]) => parseInt(id));
+          let t2Skins = skinItems.filter(([_, item]) => item.quality === 't2').map(([id]) => parseInt(id));
+          let t1Skins = skinItems.filter(([_, item]) => item.quality === 't1').map(([id]) => parseInt(id));
 
-          const rand = Math.random() * 100;
+          t3Skins = t3Skins.filter(id => !ownedItems.has(id));
+          t2Skins = t2Skins.filter(id => !ownedItems.has(id));
+          t1Skins = t1Skins.filter(id => !ownedItems.has(id));
 
-          let prizeId: number;
-          if (rand < 70) {
-            prizeId = t3Skins[Math.floor(Math.random() * t3Skins.length)];
-          } else if (rand < 90) {
-            prizeId = t2Skins[Math.floor(Math.random() * t2Skins.length)];
+          if (t3Skins.length === 0 && t2Skins.length === 0 && t1Skins.length === 0) {
+            rewards.push({ itemId: 0, count: 0 });
+            nothingCount++;
           } else {
-            prizeId = t1Skins[Math.floor(Math.random() * t1Skins.length)];
-            gotSSR = true;
-            rareHitCount++;
+            const rand = Math.random() * 100;
+
+            let prizeId: number;
+            if (t3Skins.length > 0 && rand < 70) {
+              prizeId = t3Skins[Math.floor(Math.random() * t3Skins.length)];
+            } else if (t2Skins.length > 0 && rand < 90) {
+              prizeId = t2Skins[Math.floor(Math.random() * t2Skins.length)];
+            } else if (t1Skins.length > 0) {
+              prizeId = t1Skins[Math.floor(Math.random() * t1Skins.length)];
+              gotSSR = true;
+              rareHitCount++;
+            } else if (t2Skins.length > 0) {
+              prizeId = t2Skins[Math.floor(Math.random() * t2Skins.length)];
+            } else if (t3Skins.length > 0) {
+              prizeId = t3Skins[Math.floor(Math.random() * t3Skins.length)];
+            } else {
+              prizeId = t1Skins[Math.floor(Math.random() * t1Skins.length)];
+              gotSSR = true;
+              rareHitCount++;
+            }
+            rewards.push({ itemId: prizeId, count: 1 });
           }
-          rewards.push({ itemId: prizeId, count: 1 });
         } else if (isPetPool) {
           const petItems = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '宠物');
-          const t3Pets = petItems.filter(([_, item]) => item.quality === 't3').map(([id]) => parseInt(id));
-          const t2Pets = petItems.filter(([_, item]) => item.quality === 't2').map(([id]) => parseInt(id));
-          const t1Pets = petItems.filter(([_, item]) => item.quality === 't1').map(([id]) => parseInt(id));
-          const t0Pets = petItems.filter(([_, item]) => item.quality === 't0').map(([id]) => parseInt(id));
+          let t3Pets = petItems.filter(([_, item]) => item.quality === 't3').map(([id]) => parseInt(id));
+          let t2Pets = petItems.filter(([_, item]) => item.quality === 't2').map(([id]) => parseInt(id));
+          let t1Pets = petItems.filter(([_, item]) => item.quality === 't1').map(([id]) => parseInt(id));
+          let t0Pets = petItems.filter(([_, item]) => item.quality === 't0').map(([id]) => parseInt(id));
 
-          const rand = Math.random() * 100;
+          t3Pets = t3Pets.filter(id => !ownedItems.has(id));
+          t2Pets = t2Pets.filter(id => !ownedItems.has(id));
+          t1Pets = t1Pets.filter(id => !ownedItems.has(id));
+          t0Pets = t0Pets.filter(id => !ownedItems.has(id));
 
-          let prizeId: number;
-          if (rand < 65) {
-            prizeId = t3Pets[Math.floor(Math.random() * t3Pets.length)];
-          } else if (rand < 85) {
-            prizeId = t2Pets[Math.floor(Math.random() * t2Pets.length)];
-          } else if (rand < 95) {
-            prizeId = t1Pets[Math.floor(Math.random() * t1Pets.length)];
+          if (t3Pets.length === 0 && t2Pets.length === 0 && t1Pets.length === 0 && t0Pets.length === 0) {
+            rewards.push({ itemId: 0, count: 0 });
+            nothingCount++;
           } else {
-            prizeId = t0Pets[Math.floor(Math.random() * t0Pets.length)];
-            gotSSR = true;
-            rareHitCount++;
+            const rand = Math.random() * 100;
+
+            let prizeId: number;
+            if (t3Pets.length > 0 && rand < 65) {
+              prizeId = t3Pets[Math.floor(Math.random() * t3Pets.length)];
+            } else if (t2Pets.length > 0 && rand < 85) {
+              prizeId = t2Pets[Math.floor(Math.random() * t2Pets.length)];
+            } else if (t1Pets.length > 0 && rand < 95) {
+              prizeId = t1Pets[Math.floor(Math.random() * t1Pets.length)];
+            } else if (t0Pets.length > 0) {
+              prizeId = t0Pets[Math.floor(Math.random() * t0Pets.length)];
+              gotSSR = true;
+              rareHitCount++;
+            } else if (t1Pets.length > 0) {
+              prizeId = t1Pets[Math.floor(Math.random() * t1Pets.length)];
+            } else if (t2Pets.length > 0) {
+              prizeId = t2Pets[Math.floor(Math.random() * t2Pets.length)];
+            } else if (t3Pets.length > 0) {
+              prizeId = t3Pets[Math.floor(Math.random() * t3Pets.length)];
+            } else {
+              prizeId = t0Pets[Math.floor(Math.random() * t0Pets.length)];
+              gotSSR = true;
+              rareHitCount++;
+            }
+            rewards.push({ itemId: prizeId, count: 1 });
           }
-          rewards.push({ itemId: prizeId, count: 1 });
         } else {
           if (pityCounter >= 90) {
             rewards.push({ itemId: 3, count: 1 });
@@ -551,47 +618,78 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const newCostCount = costItemCount - drawCount * costPerDraw;
-      await ctx.database.upsert('ggcevo_backpack', [{
-        user_id: handle, item_id: costItemId, count: newCostCount
-      }]);
+      if (costItem) {
+        await ctx.database.upsert('ggcevo_backpack', [{
+          id: costItem.id,
+          user_id: handle, item_id: costItemId, count: newCostCount
+        }]);
+      }
 
       if (totalGold > 0) {
         const [goldItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 1 });
         const newGoldCount = (goldItem?.count || 0) + totalGold;
-        await ctx.database.upsert('ggcevo_backpack', [{
-          user_id: handle, item_id: 1, count: newGoldCount
-        }]);
+        if (goldItem) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: goldItem.id,
+            user_id: handle, item_id: 1, count: newGoldCount
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: 1, count: newGoldCount
+          });
+        }
       }
 
       if (totalCoupon > 0) {
         const [couponItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 3 });
         const newCouponCount = (couponItem?.count || 0) + totalCoupon;
-        await ctx.database.upsert('ggcevo_backpack', [{
-          user_id: handle, item_id: 3, count: newCouponCount
-        }]);
+        if (couponItem) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: couponItem.id,
+            user_id: handle, item_id: 3, count: newCouponCount
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: 3, count: newCouponCount
+          });
+        }
       }
 
       if (totalMakeupCoupon > 0) {
         const [makeupItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 9 });
         const newMakeupCount = (makeupItem?.count || 0) + totalMakeupCoupon;
-        await ctx.database.upsert('ggcevo_backpack', [{
-          user_id: handle, item_id: 9, count: newMakeupCount
-        }]);
+        if (makeupItem) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: makeupItem.id,
+            user_id: handle, item_id: 9, count: newMakeupCount
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: 9, count: newMakeupCount
+          });
+        }
       }
 
       if (isSkinPool || isPetPool) {
         for (const reward of rewards) {
+          if (reward.itemId === 0 || reward.count === 0) continue;
           const [existingItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: reward.itemId });
           const newCount = (existingItem?.count || 0) + reward.count;
-          await ctx.database.upsert('ggcevo_backpack', [{
-            user_id: handle, item_id: reward.itemId, count: newCount
-          }]);
+          if (existingItem) {
+            await ctx.database.upsert('ggcevo_backpack', [{
+              id: existingItem.id,
+              user_id: handle, item_id: reward.itemId, count: newCount
+            }]);
+          } else {
+            await ctx.database.create('ggcevo_backpack', {
+              user_id: handle, item_id: reward.itemId, count: newCount
+            });
+          }
 
           await ctx.database.create('ggcevo_exchange_log', {
             user_id: handle,
             exchange_id: reward.itemId,
             cost_type: 2,
-            cost_amount: costPerDraw,
             create_time: now,
           });
         }
@@ -619,15 +717,28 @@ export function apply(ctx: Context, config: Config) {
 
       const newTotalDrawCount = (lotteryStatus?.total_draw_count || 0) + drawCount;
       const newPityTriggeredCount = (lotteryStatus?.pity_triggered_count || 0) + (pityTriggered ? 1 : 0);
-      await ctx.database.upsert('ggcevo_lottery_status', [{
-        user_id: handle,
-        lottery_id: poolId,
-        pity_counter: pityCounter,
-        total_draw_count: newTotalDrawCount,
-        pity_triggered_count: newPityTriggeredCount,
-        rare_hit_count: rareHitCount,
-        update_time: now,
-      }]);
+      if (lotteryStatus) {
+        await ctx.database.upsert('ggcevo_lottery_status', [{
+          id: lotteryStatus.id,
+          user_id: handle,
+          lottery_id: poolId,
+          pity_counter: pityCounter,
+          total_draw_count: newTotalDrawCount,
+          pity_triggered_count: newPityTriggeredCount,
+          rare_hit_count: rareHitCount,
+          update_time: now,
+        }]);
+      } else {
+        await ctx.database.create('ggcevo_lottery_status', {
+          user_id: handle,
+          lottery_id: poolId,
+          pity_counter: pityCounter,
+          total_draw_count: newTotalDrawCount,
+          pity_triggered_count: newPityTriggeredCount,
+          rare_hit_count: rareHitCount,
+          update_time: now,
+        });
+      }
 
       let costItemName: string;
       if (isGoldPool) {
@@ -647,6 +758,9 @@ export function apply(ctx: Context, config: Config) {
             skinRewards.push({ name: item.name, quality: item.quality });
           }
         }
+        if (skinRewards.length === 0 && nothingCount > 0) {
+          result += `💨 获得的物品均已拥有\n`;
+        }
         for (const skin of skinRewards) {
           let qualityEmoji = '';
           switch (skin.quality) {
@@ -663,6 +777,9 @@ export function apply(ctx: Context, config: Config) {
           if (item) {
             petRewards.push({ name: item.name, quality: item.quality });
           }
+        }
+        if (petRewards.length === 0 && nothingCount > 0) {
+          result += `💨 获得的物品均已拥有\n`;
         }
         for (const pet of petRewards) {
           let qualityEmoji = '';
@@ -681,8 +798,264 @@ export function apply(ctx: Context, config: Config) {
         if (nothingCount > 0) result += `💨 ${nothingCount} 次未获得物品\n`;
       }
       result += `累计抽奖次数：${newTotalDrawCount}`;
+      if (!isGoldPool && !isSkinPool && !isPetPool) {
+        result += `\n🔮 保底进度：${pityCounter}/90`;
+      }
 
       return result;
+    });
+
+  ctx.command('sign/背包')
+    .action(async (argv) => {
+      const session = argv.session;
+      const handle = await getHandle(session);
+      if (!handle) {
+        return '🔒 需要先绑定游戏句柄。';
+      }
+
+      const backpackItems = await ctx.database.get('ggcevo_backpack', { user_id: handle });
+
+      if (backpackItems.length === 0) {
+        return '🎒 背包是空的，快去签到或抽奖获得物品吧！';
+      }
+
+      let message = `🎒 ${session.username}的背包物品：\n`;
+      for (const item of backpackItems) {
+        const itemName = ItemConfig[item.item_id];
+        if (!itemName) continue;
+        message += `${itemName} x${item.count}\n`;
+      }
+
+      return message;
+    });
+
+  ctx.command('sign/个人信息')
+    .action(async (argv) => {
+      const session = argv.session;
+      const handle = await getHandle(session);
+      if (!handle) {
+        return '🔒 需要先绑定游戏句柄。';
+      }
+
+      const username = session.username || '未知用户';
+      let message = `👤 个人信息\n`;
+      message += `─────────────\n`;
+      message += `用户名：${username}\n`;
+      message += `游戏句柄：${handle}\n`;
+
+      const [signinSummary] = await ctx.database.get('ggcevo_signin_summary', { user_id: handle });
+      if (signinSummary) {
+        const lastSigninDate = signinSummary.last_signin_date
+          ? new Date(signinSummary.last_signin_date).toLocaleDateString('zh-CN')
+          : '从未签到';
+        message += `─────────────\n`;
+        message += `📅 签到信息\n`;
+        message += `累计签到：${signinSummary.total_days} 天\n`;
+        message += `本月签到：${signinSummary.month_days} 天\n`;
+        message += `连续签到：${signinSummary.continuous_days} 天\n`;
+        message += `最后签到：${lastSigninDate}\n`;
+      } else {
+        message += `─────────────\n`;
+        message += `📅 签到信息：暂无签到记录\n`;
+      }
+
+      const lotteryStatuses = await ctx.database.get('ggcevo_lottery_status', { user_id: handle });
+      if (lotteryStatuses.length > 0) {
+        message += `─────────────\n`;
+        message += `🎰 抽奖信息\n`;
+        for (const status of lotteryStatuses) {
+          const poolName = LotteryPoolConfig[status.lottery_id] || '未知奖池';
+          message += `【${poolName}】\n`;
+          message += `  累计抽奖：${status.total_draw_count} 次\n`;
+          if (status.lottery_id === 2) {
+            message += `  🔮 保底进度：${status.pity_counter}/90\n`;
+            message += `  保底触发：${status.pity_triggered_count} 次\n`;
+            message += `  稀有命中：${status.rare_hit_count} 次\n`;
+          }
+        }
+      } else {
+        message += `─────────────\n`;
+        message += `🎰 抽奖信息：暂无抽奖记录\n`;
+      }
+
+      const exchangeLogs = await ctx.database.get('ggcevo_exchange_log', { user_id: handle });
+      if (exchangeLogs.length > 0) {
+        message += `─────────────\n`;
+        message += `🎁 兑换记录\n`;
+        const sortedLogs = exchangeLogs.sort((a, b) =>
+          new Date(b.create_time).getTime() - new Date(a.create_time).getTime()
+        ).slice(0, 10);
+        for (const log of sortedLogs) {
+          const itemName = ExchangeConfig[log.exchange_id]?.name || '未知物品';
+          const costType = log.cost_type === 1 ? '兑换' : log.cost_type === 2 ? '抽奖获得' : '其他';
+          const createTime = new Date(log.create_time).toLocaleDateString('zh-CN');
+          message += `${createTime} ${itemName}（${costType}）\n`;
+        }
+      } else {
+        message += `─────────────\n`;
+        message += `🎁 兑换记录：暂无兑换记录\n`;
+      }
+
+      return message;
+    });
+
+  ctx.command('sign/给予 <targetId:string> <itemId:number> <count:number>')
+    .action(async (argv, targetId, itemId, count) => {
+      const session = argv.session;
+      const senderHandle = await getHandle(session);
+      if (!senderHandle) {
+        return '🔒 需要先绑定游戏句柄。';
+      }
+
+      if (count <= 0) {
+        return '❌ 数量必须大于0！';
+      }
+
+      const itemName = ItemConfig[itemId];
+      if (!itemName) {
+        return `❌ 不存在ID为 ${itemId} 的物品！`;
+      }
+
+      const [senderItem] = await ctx.database.get('ggcevo_backpack', { user_id: senderHandle, item_id: itemId });
+      const senderCount = senderItem?.count || 0;
+
+      if (senderCount < count) {
+        return `❌ ${itemName}不足！需要 ${count} 个，当前拥有 ${senderCount} 个。`;
+      }
+
+      const newSenderCount = senderCount - count;
+      if (senderItem) {
+        await ctx.database.upsert('ggcevo_backpack', [{
+          id: senderItem.id,
+          user_id: senderHandle, item_id: itemId, count: newSenderCount
+        }]);
+      }
+
+      const [targetItem] = await ctx.database.get('ggcevo_backpack', { user_id: targetId, item_id: itemId });
+      const targetCount = (targetItem?.count || 0) + count;
+      if (targetItem) {
+        await ctx.database.upsert('ggcevo_backpack', [{
+          id: targetItem.id,
+          user_id: targetId, item_id: itemId, count: targetCount
+        }]);
+      } else {
+        await ctx.database.create('ggcevo_backpack', {
+          user_id: targetId, item_id: itemId, count: targetCount
+        });
+      }
+
+      return `✅ 成功给予 ${targetId} ${count} 个${itemName}！`;
+    });
+
+  ctx.command('sign/抽奖概率')
+    .action(async () => {
+      let message = `🎰 抽奖概率说明\n`;
+      message += `─────────────\n`;
+      message += `【金币池】ID:1 消耗：100金币/次\n`;
+      message += `  25% 空手而归\n`;
+      message += `  50% 获得 80 金币\n`;
+      message += `  15% 获得 150 金币\n`;
+      message += `  5% 获得 200 金币\n`;
+      message += `  5% 获得 补签券 x1\n`;
+      message += `─────────────\n`;
+      message += `【普通池】ID:2 消耗：1咕咕币/次\n`;
+      message += `  保底：90次必出 兑换券\n`;
+      message += `  70% 获得 5 金币\n`;
+      message += `  10% 获得 10 金币\n`;
+      message += `  5% 获得 20 金币\n`;
+      message += `  4.5% 获得 100 金币\n`;
+      message += `  0.5% 获得 兑换券\n`;
+      message += `  10% 空手而归\n`;
+      message += `─────────────\n`;
+      message += `【皮肤池】ID:3 消耗：3兑换券/次\n`;
+      message += `  70% 获得 T3 皮肤\n`;
+      message += `  20% 获得 T2 皮肤\n`;
+      message += `  10% 获得 T1 皮肤\n`;
+      message += `  不会抽到已拥有的物品\n`;
+      message += `─────────────\n`;
+      message += `【宠物池】ID:4 消耗：3兑换券/次\n`;
+      message += `  65% 获得 T3 宠物\n`;
+      message += `  20% 获得 T2 宠物\n`;
+      message += `  10% 获得 T1 宠物\n`;
+      message += `  5% 获得 T0 宠物\n`;
+      message += `  不会抽到已拥有的物品\n`;
+      return message;
+    });
+
+  ctx.command('sign/签到奖励')
+    .action(async () => {
+      let message = `📅 签到奖励说明\n`;
+      message += `─────────────\n`;
+      message += `【每日基础奖励】\n`;
+      message += `  金币：10~20（随机）\n`;
+      message += `  咕咕币：3\n`;
+      message += `─────────────\n`;
+      message += `【累计签到额外奖励】\n`;
+      message += `  第7天：+1 咕咕币\n`;
+      message += `  第14天：+2 咕咕币\n`;
+      message += `  第21天：+3 咕咕币\n`;
+      message += `  第28天：+4 咕咕币\n`;
+      message += `─────────────\n`;
+      message += `【每月津贴】\n`;
+      message += `  仅管理员/群主可领取\n`;
+      message += `  每月首次签到额外奖励：+50 咕咕币\n`;
+      return message;
+    });
+
+  ctx.command('sign/兑换列表')
+    .action(async () => {
+      let message = `🎁 可兑换物品列表\n`;
+      message += `─────────────\n`;
+      message += `【T3 皮肤】消耗：3 兑换券\n`;
+      const t3Skins = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '皮肤' && item.quality === 't3');
+      for (const [id, item] of t3Skins) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【T2 皮肤】消耗：4 兑换券\n`;
+      const t2Skins = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '皮肤' && item.quality === 't2');
+      for (const [id, item] of t2Skins) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【T1 皮肤】消耗：5 兑换券\n`;
+      const t1Skins = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '皮肤' && item.quality === 't1');
+      for (const [id, item] of t1Skins) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【T3 宠物】消耗：3 兑换券\n`;
+      const t3Pets = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '宠物' && item.quality === 't3');
+      for (const [id, item] of t3Pets) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【T2 宠物】消耗：4 兑换券\n`;
+      const t2Pets = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '宠物' && item.quality === 't2');
+      for (const [id, item] of t2Pets) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【T1 宠物】消耗：5 兑换券\n`;
+      const t1Pets = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '宠物' && item.quality === 't1');
+      for (const [id, item] of t1Pets) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【T0 宠物】消耗：6 兑换券\n`;
+      const t0Pets = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '宠物' && item.quality === 't0');
+      for (const [id, item] of t0Pets) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【入场特效】消耗：5 兑换券\n`;
+      const effects = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '入场特效');
+      for (const [id, item] of effects) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `⚠️ 限定物品不可兑换\n`;
+      return message;
     });
 
 }

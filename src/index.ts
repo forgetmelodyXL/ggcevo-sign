@@ -367,7 +367,7 @@ export function apply(ctx: Context, config: Config) {
       await updateBackpackItem(1, goldReward);
       await updateBackpackItem(2, gugubReward);
 
-      let message = `🎁 签到成功！\n获得 ${goldReward} 金币\n获得 ${gugubReward} 咕咕币\n累计签到 ${newTotalDays} 天\n连续签到 ${newContinuousDays} 天`;
+      let message = `🎁 签到成功！\n获得 ${goldReward} 金币\n获得 3 咕咕币\n累计签到 ${newTotalDays} 天\n连续签到 ${newContinuousDays} 天`;
       if (extraGugubReward > 0) {
         message += `\n⭐ 本月第${newMonthDays}次签到额外奖励：${extraGugubReward} 咕咕币`;
       }
@@ -377,8 +377,8 @@ export function apply(ctx: Context, config: Config) {
       return message;
     });
 
-  ctx.command('sign/兑换 <id:number>')
-    .action(async (argv, id) => {
+  ctx.command('sign/兑换 <name:string>')
+    .action(async (argv, name) => {
       const session = argv.session;
 
       const handle = await getHandle(session);
@@ -386,10 +386,24 @@ export function apply(ctx: Context, config: Config) {
         return '🔒 需要先绑定游戏句柄。';
       }
 
-      const exchangeItem = ExchangeConfig[id];
-      if (!exchangeItem) {
-        return `❌ 不存在ID为 ${id} 的兑换物品！`;
+      if (!name) {
+        return '❌ 请输入兑换物品的名称！\n使用 `sign/兑换列表` 查看可兑换物品。';
       }
+
+      const matchedItems = Object.entries(ExchangeConfig).filter(([_, item]) =>
+        item.name.includes(name)
+      );
+
+      if (matchedItems.length === 0) {
+        return `❌ 不存在名为"${name}"的兑换物品！\n使用 \`sign/兑换列表\` 查看可兑换物品。`;
+      }
+
+      if (matchedItems.length > 1) {
+        const itemNames = matchedItems.map(([_, item]) => item.name).join('、');
+        return `❌ 名称"${name}"匹配多个物品：${itemNames}\n请输入更完整的物品名称。`;
+      }
+
+      const [id, exchangeItem] = matchedItems[0];
 
       if (exchangeItem.quality === '限定') {
         return `❌ ${exchangeItem.name} 为限定物品，不可兑换！`;
@@ -421,7 +435,7 @@ export function apply(ctx: Context, config: Config) {
       const now = new Date();
       await ctx.database.create('ggcevo_exchange_log', {
         user_id: handle,
-        exchange_id: id,
+        exchange_id: Number(id),
         cost_type: 1,
         create_time: now,
       });
@@ -519,6 +533,7 @@ export function apply(ctx: Context, config: Config) {
       let totalGold = 0;
       let totalCoupon = 0;
       let totalMakeupCoupon = 0;
+      let totalGugub = 0;
       let nothingCount = 0;
 
       for (let i = 0; i < drawCount; i++) {
@@ -532,17 +547,17 @@ export function apply(ctx: Context, config: Config) {
         if (isGoldPool) {
           const rand = Math.random() * 100;
 
-          if (rand < 25) {
+          if (rand < 20) {
             nothingCount++;
-          } else if (rand < 75) {
+          } else if (rand < 70) {
             rewards.push({ itemId: 1, count: 80 });
             totalGold += 80;
-          } else if (rand < 90) {
+          } else if (rand < 85) {
             rewards.push({ itemId: 1, count: 150 });
             totalGold += 150;
           } else if (rand < 95) {
-            rewards.push({ itemId: 1, count: 200 });
-            totalGold += 200;
+            rewards.push({ itemId: 2, count: 1 });
+            totalGugub += 1;
           } else {
             rewards.push({ itemId: 9, count: 1 });
             totalMakeupCoupon += 1;
@@ -701,6 +716,21 @@ export function apply(ctx: Context, config: Config) {
         }
       }
 
+      if (totalGugub > 0) {
+        const [gugubItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 2 });
+        const newGugubCount = (gugubItem?.count || 0) + totalGugub;
+        if (gugubItem) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: gugubItem.id,
+            user_id: handle, item_id: 2, count: newGugubCount
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: 2, count: newGugubCount
+          });
+        }
+      }
+
       if (totalMakeupCoupon > 0) {
         const [makeupItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 9 });
         const newMakeupCount = (makeupItem?.count || 0) + totalMakeupCoupon;
@@ -839,6 +869,7 @@ export function apply(ctx: Context, config: Config) {
         }
       } else {
         if (totalGold > 0) result += `💰 获得 ${totalGold} 金币\n`;
+        if (totalGugub > 0) result += `🪙 获得 ${totalGugub} 咕咕币\n`;
         if (totalCoupon > 0) result += `🎫 获得 ${totalCoupon} 兑换券\n`;
         if (totalMakeupCoupon > 0) result += `🎟️ 获得 ${totalMakeupCoupon} 补签券\n`;
         if (nothingCount > 0) result += `💨 ${nothingCount} 次未获得物品\n`;
@@ -997,11 +1028,16 @@ export function apply(ctx: Context, config: Config) {
     .action(async () => {
       let message = `🎰 抽奖概率说明\n`;
       message += `─────────────\n`;
+      message += `【使用方法】\n`;
+      message += `  sign/抽奖 [-p 奖池ID] [-c 次数]\n`;
+      message += `  -p 指定奖池（默认普通池）：1=金币池，2=普通池，3=皮肤池，4=宠物池\n`;
+      message += `  -c 指定抽奖次数（非普通池默认单抽，普通池默认全抽）\n`;
+      message += `─────────────\n`;
       message += `【金币池】ID:1 消耗：100金币/次\n`;
-      message += `  25% 空手而归\n`;
+      message += `  20% 空手而归\n`;
       message += `  50% 获得 80 金币\n`;
       message += `  15% 获得 150 金币\n`;
-      message += `  5% 获得 200 金币\n`;
+      message += `  10% 获得 咕咕币 x1\n`;
       message += `  5% 获得 补签券 x1\n`;
       message += `─────────────\n`;
       message += `【普通池】ID:2 消耗：1咕咕币/次\n`;
@@ -1036,11 +1072,11 @@ export function apply(ctx: Context, config: Config) {
       message += `  金币：10~20（随机）\n`;
       message += `  咕咕币：3\n`;
       message += `─────────────\n`;
-      message += `【累计签到额外奖励】\n`;
-      message += `  第7天：+1 咕咕币\n`;
-      message += `  第14天：+2 咕咕币\n`;
-      message += `  第21天：+3 咕咕币\n`;
-      message += `  第28天：+4 咕咕币\n`;
+      message += `【本月累计签到额外奖励】\n`;
+      message += `  本月第7天：+1 咕咕币\n`;
+      message += `  本月第14天：+2 咕咕币\n`;
+      message += `  本月第21天：+3 咕咕币\n`;
+      message += `  本月第28天：+4 咕咕币\n`;
       message += `─────────────\n`;
       message += `【每月津贴】\n`;
       message += `  仅管理员/群主可领取\n`;
@@ -1049,6 +1085,7 @@ export function apply(ctx: Context, config: Config) {
     });
 
   ctx.command('sign/兑换列表')
+    .alias('兑换表')
     .action(async () => {
       let message = `🎁 可兑换物品列表\n`;
       message += `─────────────\n`;
@@ -1097,6 +1134,12 @@ export function apply(ctx: Context, config: Config) {
       message += `【入场特效】消耗：5 兑换券\n`;
       const effects = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '入场特效');
       for (const [id, item] of effects) {
+        message += `  ${item.name}\n`;
+      }
+      message += `─────────────\n`;
+      message += `【物品】消耗：6 兑换券\n`;
+      const items = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '物品');
+      for (const [id, item] of items) {
         message += `  ${item.name}\n`;
       }
       message += `─────────────\n`;

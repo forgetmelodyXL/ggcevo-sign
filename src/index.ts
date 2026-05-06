@@ -1159,7 +1159,7 @@ export function apply(ctx: Context, config: Config) {
       const { options } = argv;
 
       if (!options.name || !options.description || options.rewardItem === undefined || options.rewardAmount === undefined) {
-        return `❌ 参数不足！\n格式：创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> [-s <开始时间>] [-e <结束时间>] [-m <领取上限>]\n示例：创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100\n（开始时间默认当天，结束时间默认7天后，领取上限默认1次）`;
+        return `❌ 参数不足！\n格式：创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> [-s <开始时间>] [-e <结束时间>] [-m <领取上限>]\n示例：创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100\n（开始时间默认当天，结束时间默认7天后，领取上限默认0次=无限制）`;
       }
 
       const rewardItemId = options.rewardItem;
@@ -1173,7 +1173,7 @@ export function apply(ctx: Context, config: Config) {
         return `❌ 奖励数量必须大于0！`;
       }
 
-      const maxClaims = options.maxClaims !== undefined ? options.maxClaims : 1;
+      const maxClaims = options.maxClaims !== undefined ? options.maxClaims : 0;
 
       let startTime: Date;
       let endTime: Date;

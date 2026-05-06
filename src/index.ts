@@ -387,7 +387,7 @@ export function apply(ctx: Context, config: Config) {
       }
 
       if (!name) {
-        return '❌ 请输入兑换物品的名称！\n使用 `sign/兑换列表` 查看可兑换物品。';
+        return '❌ 请输入兑换物品的名称！\n使用 `兑换列表` 查看可兑换物品。';
       }
 
       const matchedItems = Object.entries(ExchangeConfig).filter(([_, item]) =>
@@ -395,7 +395,7 @@ export function apply(ctx: Context, config: Config) {
       );
 
       if (matchedItems.length === 0) {
-        return `❌ 不存在名为"${name}"的兑换物品！\n使用 \`sign/兑换列表\` 查看可兑换物品。`;
+        return `❌ 不存在名为"${name}"的兑换物品！\n使用 \`兑换列表\` 查看可兑换物品。`;
       }
 
       if (matchedItems.length > 1) {
@@ -1029,7 +1029,7 @@ export function apply(ctx: Context, config: Config) {
       let message = `🎰 抽奖概率说明\n`;
       message += `─────────────\n`;
       message += `【使用方法】\n`;
-      message += `  sign/抽奖 [-p 奖池ID] [-c 次数]\n`;
+      message += `  抽奖 [-p 奖池ID] [-c 次数]\n`;
       message += `  -p 指定奖池（默认普通池）：1=金币池，2=普通池，3=皮肤池，4=宠物池\n`;
       message += `  -c 指定抽奖次数（非普通池默认单抽，普通池默认全抽）\n`;
       message += `─────────────\n`;
@@ -1152,14 +1152,14 @@ export function apply(ctx: Context, config: Config) {
     .option('description', '-d <description:string> 活动描述')
     .option('rewardItem', '-r <rewardItem:number> 奖励物品ID')
     .option('rewardAmount', '-a <rewardAmount:number> 奖励数量')
-    .option('startTime', '-s <startTime:string> 开始时间 (格式: YYYY-MM-DD HH:mm:ss)')
-    .option('endTime', '-e <endTime:string> 结束时间 (格式: YYYY-MM-DD HH:mm:ss)')
+    .option('startTime', '-s <startTime:string> 开始时间 (格式: YYYY-MM-DD)')
+    .option('endTime', '-e <endTime:string> 结束时间 (格式: YYYY-MM-DD)')
     .option('maxClaims', '-m <maxClaims:number> 总领取上限 (0=无限制)')
     .action(async (argv) => {
       const { options } = argv;
 
-      if (!options.name || !options.description || options.rewardItem === undefined || options.rewardAmount === undefined || !options.startTime || !options.endTime) {
-        return `❌ 参数不足！\n格式：/sign/创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> -s <开始时间> -e <结束时间> -m <领取上限>\n示例：/sign/创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100 -s 2026-05-01 00:00:00 -e 2026-05-31 23:59:59 -m 0`;
+      if (!options.name || !options.description || options.rewardItem === undefined || options.rewardAmount === undefined) {
+        return `❌ 参数不足！\n格式：创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> [-s <开始时间>] [-e <结束时间>] [-m <领取上限>]\n示例：创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100\n（开始时间默认当天，结束时间默认7天后，领取上限默认1次）`;
       }
 
       const rewardItemId = options.rewardItem;
@@ -1173,21 +1173,36 @@ export function apply(ctx: Context, config: Config) {
         return `❌ 奖励数量必须大于0！`;
       }
 
-      const maxClaims = options.maxClaims ?? 0;
+      const maxClaims = options.maxClaims !== undefined ? options.maxClaims : 1;
 
       let startTime: Date;
       let endTime: Date;
       try {
-        startTime = new Date(options.startTime);
-        if (isNaN(startTime.getTime())) {
-          throw new Error('Invalid start time');
+        if (options.startTime) {
+          const startParts = options.startTime.split('-');
+          if (startParts.length !== 3) throw new Error('Invalid start time');
+          startTime = new Date(parseInt(startParts[0]), parseInt(startParts[1]) - 1, parseInt(startParts[2]), 0, 0, 0);
+          if (isNaN(startTime.getTime())) throw new Error('Invalid start time');
+        } else {
+          const now = new Date();
+          startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
         }
-        endTime = new Date(options.endTime);
-        if (isNaN(endTime.getTime())) {
-          throw new Error('Invalid end time');
+
+        if (options.endTime) {
+          const endParts = options.endTime.split('-');
+          if (endParts.length !== 3) throw new Error('Invalid end time');
+          endTime = new Date(parseInt(endParts[0]), parseInt(endParts[1]) - 1, parseInt(endParts[2]), 0, 0, 0);
+          if (isNaN(endTime.getTime())) throw new Error('Invalid end time');
+        } else {
+          endTime = new Date(startTime);
+          endTime.setDate(endTime.getDate() + 7);
+        }
+
+        if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+          throw new Error('Invalid date');
         }
       } catch {
-        return `❌ 时间格式错误！请使用格式：YYYY-MM-DD HH:mm:ss`;
+        return `❌ 时间格式错误！请使用格式：YYYY-MM-DD`;
       }
 
       if (startTime >= endTime) {
@@ -1210,12 +1225,16 @@ export function apply(ctx: Context, config: Config) {
       return `✅ 活动创建成功！\n─────────────\n📛 活动名称：${options.name}\n📝 活动描述：${options.description}\n🎁 奖励物品：${itemName} x${rewardAmount}\n⏰ 开始时间：${startTime.toLocaleString('zh-CN')}\n⏰ 结束时间：${endTime.toLocaleString('zh-CN')}\n📊 总领取上限：${maxClaimsText}`;
     });
 
-  ctx.command('sign/领取活动 <activityId:number>')
+  ctx.command('sign/领取活动 [activityId:number]')
     .action(async (argv, activityId) => {
       const session = argv.session;
       const handle = await getHandle(session);
       if (!handle) {
         return '🔒 需要先绑定游戏句柄。';
+      }
+
+      if (activityId === undefined || activityId === null) {
+        return `❌ 请输入活动ID！\n使用 活动列表 查询可领取的活动`;
       }
 
       const [activity] = await ctx.database.get('ggcevo_activity', { id: activityId });

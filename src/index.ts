@@ -66,6 +66,8 @@ declare module 'koishi' {
     ggcevo_lottery_log: LotteryLog
     ggcevo_lottery_status: LotteryStatus
     ggcevo_exchange_log: ExchangeLog
+    ggcevo_activity: Activity
+    ggcevo_activity_claim_log: ActivityClaimLog
   }
 }
 
@@ -123,6 +125,25 @@ export interface ExchangeLog {
   exchange_id: number //兑换物品ID（对应兑换物品模板）
   cost_type: number // 消耗类型（0=免费 1=兑换 2=抽奖）
   create_time: Date // 创建时间
+}
+
+export interface Activity {
+  id: number // 主键ID（自增）
+  name: string // 活动名称
+  description: string // 活动描述文字
+  reward_item: number // 活动奖励物品
+  reward_amount: number // 活动奖励数量
+  start_time: Date // 开始时间
+  end_time: Date // 结束时间
+  max_claims: number // 总领取上限（0=无限制）
+  created_at: Date // 创建时间
+}
+
+export interface ActivityClaimLog {
+  id: number // 主键ID（自增）
+  activity_id: number // 关联活动ID
+  user_id: string // 用户ID
+  claimed_at: Date // 领取时间
 }
 
 export function apply(ctx: Context, config: Config) {
@@ -203,6 +224,31 @@ export function apply(ctx: Context, config: Config) {
     exchange_id: 'unsigned',
     cost_type: 'unsigned',
     create_time: 'timestamp',
+  }, {
+    primary: 'id',
+    autoInc: true
+  })
+
+  ctx.model.extend('ggcevo_activity', {
+    id: 'unsigned',
+    name: 'string',
+    description: 'string',
+    reward_item: 'unsigned',
+    reward_amount: 'unsigned',
+    start_time: 'timestamp',
+    end_time: 'timestamp',
+    max_claims: 'unsigned',
+    created_at: 'timestamp',
+  }, {
+    primary: 'id',
+    autoInc: true
+  })
+
+  ctx.model.extend('ggcevo_activity_claim_log', {
+    id: 'unsigned',
+    activity_id: 'unsigned',
+    user_id: 'string',
+    claimed_at: 'timestamp',
   }, {
     primary: 'id',
     autoInc: true
@@ -1055,6 +1101,182 @@ export function apply(ctx: Context, config: Config) {
       }
       message += `─────────────\n`;
       message += `⚠️ 限定物品不可兑换\n`;
+      return message;
+    });
+
+  ctx.command('sign/创建活动', { authority: 3 })
+    .option('name', '-n <name:string> 活动名称')
+    .option('description', '-d <description:string> 活动描述')
+    .option('rewardItem', '-r <rewardItem:number> 奖励物品ID')
+    .option('rewardAmount', '-a <rewardAmount:number> 奖励数量')
+    .option('startTime', '-s <startTime:string> 开始时间 (格式: YYYY-MM-DD HH:mm:ss)')
+    .option('endTime', '-e <endTime:string> 结束时间 (格式: YYYY-MM-DD HH:mm:ss)')
+    .option('maxClaims', '-m <maxClaims:number> 总领取上限 (0=无限制)')
+    .action(async (argv) => {
+      const { options } = argv;
+
+      if (!options.name || !options.description || options.rewardItem === undefined || options.rewardAmount === undefined || !options.startTime || !options.endTime) {
+        return `❌ 参数不足！\n格式：/sign/创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> -s <开始时间> -e <结束时间> -m <领取上限>\n示例：/sign/创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100 -s 2026-05-01 00:00:00 -e 2026-05-31 23:59:59 -m 0`;
+      }
+
+      const rewardItemId = options.rewardItem;
+      const itemName = ItemConfig[rewardItemId];
+      if (!itemName) {
+        return `❌ 不存在ID为 ${rewardItemId} 的物品！`;
+      }
+
+      const rewardAmount = options.rewardAmount;
+      if (rewardAmount <= 0) {
+        return `❌ 奖励数量必须大于0！`;
+      }
+
+      const maxClaims = options.maxClaims ?? 0;
+
+      let startTime: Date;
+      let endTime: Date;
+      try {
+        startTime = new Date(options.startTime);
+        if (isNaN(startTime.getTime())) {
+          throw new Error('Invalid start time');
+        }
+        endTime = new Date(options.endTime);
+        if (isNaN(endTime.getTime())) {
+          throw new Error('Invalid end time');
+        }
+      } catch {
+        return `❌ 时间格式错误！请使用格式：YYYY-MM-DD HH:mm:ss`;
+      }
+
+      if (startTime >= endTime) {
+        return `❌ 开始时间必须早于结束时间！`;
+      }
+
+      const now = new Date();
+      await ctx.database.create('ggcevo_activity', {
+        name: options.name,
+        description: options.description,
+        reward_item: rewardItemId,
+        reward_amount: rewardAmount,
+        start_time: startTime,
+        end_time: endTime,
+        max_claims: maxClaims,
+        created_at: now,
+      });
+
+      const maxClaimsText = maxClaims === 0 ? '无限制' : `${maxClaims}次`;
+      return `✅ 活动创建成功！\n─────────────\n📛 活动名称：${options.name}\n📝 活动描述：${options.description}\n🎁 奖励物品：${itemName} x${rewardAmount}\n⏰ 开始时间：${startTime.toLocaleString('zh-CN')}\n⏰ 结束时间：${endTime.toLocaleString('zh-CN')}\n📊 总领取上限：${maxClaimsText}`;
+    });
+
+  ctx.command('sign/领取活动 <activityId:number>')
+    .action(async (argv, activityId) => {
+      const session = argv.session;
+      const handle = await getHandle(session);
+      if (!handle) {
+        return '🔒 需要先绑定游戏句柄。';
+      }
+
+      const [activity] = await ctx.database.get('ggcevo_activity', { id: activityId });
+      if (!activity) {
+        return `❌ 不存在ID为 ${activityId} 的活动！`;
+      }
+
+      const now = new Date();
+      const startTime = new Date(activity.start_time);
+      const endTime = new Date(activity.end_time);
+
+      if (now < startTime) {
+        return `⏰ 活动尚未开始，开始时间：${startTime.toLocaleString('zh-CN')}`;
+      }
+
+      if (now > endTime) {
+        return `⏱️ 活动已结束，结束时间：${endTime.toLocaleString('zh-CN')}`;
+      }
+
+      if (activity.max_claims > 0) {
+        const totalClaims = await ctx.database.get('ggcevo_activity_claim_log', { activity_id: activityId });
+        if (totalClaims.length >= activity.max_claims) {
+          return `❌ 该活动领取次数已用尽！`;
+        }
+      }
+
+      const [existingClaim] = await ctx.database.get('ggcevo_activity_claim_log', {
+        activity_id: activityId,
+        user_id: handle,
+      });
+
+      if (existingClaim) {
+        return `❌ 您已经领取过该活动了！`;
+      }
+
+      await ctx.database.create('ggcevo_activity_claim_log', {
+        activity_id: activityId,
+        user_id: handle,
+        claimed_at: now,
+      });
+
+      const rewardItemName = ItemConfig[activity.reward_item] || '未知物品';
+      const updateBackpackItem = async (itemId: number, count: number) => {
+        const [existing] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: itemId });
+        const newCount = (existing?.count || 0) + count;
+        if (existing) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: existing.id,
+            user_id: handle, item_id: itemId, count: newCount
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: itemId, count: newCount
+          });
+        }
+      };
+
+      await updateBackpackItem(activity.reward_item, activity.reward_amount);
+
+      return `🎉 领取成功！\n─────────────\n📛 活动：${activity.name}\n🎁 获得：${rewardItemName} x${activity.reward_amount}`;
+    });
+
+  ctx.command('sign/活动列表')
+    .action(async () => {
+      const activities = await ctx.database.get('ggcevo_activity', {});
+      if (activities.length === 0) {
+        return `📋 暂无活动`;
+      }
+
+      const now = new Date();
+      let message = `📋 活动列表\n`;
+      message += `─────────────\n`;
+
+      for (const activity of activities) {
+        const startTime = new Date(activity.start_time);
+        const endTime = new Date(activity.end_time);
+        const rewardItemName = ItemConfig[activity.reward_item] || '未知物品';
+
+        let status = '';
+        if (now < startTime) {
+          status = '🔘 未开始';
+        } else if (now > endTime) {
+          status = '⏱️ 已结束';
+        } else {
+          status = '✅ 进行中';
+        }
+
+        let claimsInfo = '';
+        if (activity.max_claims > 0) {
+          const claimLogs = await ctx.database.get('ggcevo_activity_claim_log', { activity_id: activity.id });
+          const claimCount = claimLogs.length;
+          claimsInfo = `(${claimCount}/${activity.max_claims})`;
+        } else {
+          claimsInfo = '(无限制)';
+        }
+
+        message += `【${activity.id}】${activity.name} ${status}\n`;
+        message += `  描述：${activity.description}\n`;
+        message += `  奖励：${rewardItemName} x${activity.reward_amount}\n`;
+        message += `  时间：${startTime.toLocaleDateString('zh-CN')} ~ ${endTime.toLocaleDateString('zh-CN')}\n`;
+        message += `  领取：${claimsInfo}\n`;
+        message += `─────────────\n`;
+      }
+
       return message;
     });
 

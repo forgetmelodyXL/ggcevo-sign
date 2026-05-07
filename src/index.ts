@@ -1342,4 +1342,114 @@ export function apply(ctx: Context, config: Config) {
       return message;
     });
 
+  ctx.command('sign/补签')
+    .action(async (argv) => {
+      const session = argv.session;
+      const handle = await getHandle(session);
+      if (!handle) {
+        return '🔒 需要先绑定游戏句柄。';
+      }
+
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth();
+      const currentMonthNum = currentYear * 100 + (currentMonth + 1);
+
+      const [makeupCoupon] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 9 });
+      const couponCount = makeupCoupon?.count || 0;
+      if (couponCount <= 0) {
+        return '❌ 补签券不足！需要1张补签券进行补签。';
+      }
+
+      const startOfMonth = new Date(currentYear, currentMonth, 1);
+      const endOfMonth = new Date(currentYear, currentMonth + 1, 0);
+
+      const existingLogs = await ctx.database.get('ggcevo_signin_log', {
+        user_id: handle,
+        signin_date: { $gte: startOfMonth, $lte: endOfMonth },
+      });
+
+      const signedDates = new Set<string>();
+      for (const log of existingLogs) {
+        const date = new Date(log.signin_date);
+        const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+        signedDates.add(dateStr);
+      }
+
+      const today = new Date(currentYear, currentMonth, now.getDate());
+      const missedDates: Date[] = [];
+      for (let d = new Date(startOfMonth); d <= today; d.setDate(d.getDate() + 1)) {
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        if (!signedDates.has(dateStr)) {
+          missedDates.push(new Date(d));
+        }
+      }
+
+      if (missedDates.length === 0) {
+        return '📅 本月没有可补签的日期！';
+      }
+
+      const earliestMissedDate = missedDates[0];
+
+      const gugubReward = 3;
+
+      await ctx.database.upsert('ggcevo_backpack', [{
+        id: makeupCoupon.id,
+        user_id: handle,
+        item_id: 9,
+        count: couponCount - 1,
+      }]);
+
+      await ctx.database.create('ggcevo_signin_log', {
+        user_id: handle,
+        signin_date: earliestMissedDate,
+        signin_type: 1,
+        reward_config: 'makeup',
+        create_time: now,
+      });
+
+      const [gugubItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 2 });
+      const newGugubCount = (gugubItem?.count || 0) + gugubReward;
+      if (gugubItem) {
+        await ctx.database.upsert('ggcevo_backpack', [{
+          id: gugubItem.id,
+          user_id: handle,
+          item_id: 2,
+          count: newGugubCount,
+        }]);
+      } else {
+        await ctx.database.create('ggcevo_backpack', {
+          user_id: handle,
+          item_id: 2,
+          count: newGugubCount,
+        });
+      }
+
+      const [summary] = await ctx.database.get('ggcevo_signin_summary', { user_id: handle });
+      let newMonthDays = 1;
+      let newTotalDays = 1;
+      if (summary) {
+        if (summary.current_month === currentMonthNum) {
+          newMonthDays = summary.month_days + 1;
+        } else {
+          newMonthDays = 1;
+        }
+        newTotalDays = summary.total_days + 1;
+      }
+
+      await ctx.database.upsert('ggcevo_signin_summary', [{
+        user_id: handle,
+        total_days: newTotalDays,
+        month_days: newMonthDays,
+        current_month: currentMonthNum,
+        continuous_days: summary?.continuous_days || 0,
+        last_signin_date: summary?.last_signin_date || now,
+        update_time: now,
+        last_allowance_month: summary?.last_allowance_month || 0,
+      }]);
+
+      const dateStr = earliestMissedDate.toLocaleDateString('zh-CN');
+      return `🎁 补签成功！\n补签日期：${dateStr}\n消耗：1 补签券\n获得：${gugubReward} 咕咕币\n本月签到：${newMonthDays} 天\n累计签到：${newTotalDays} 天`;
+    });
+
 }

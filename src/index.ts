@@ -1191,11 +1191,12 @@ export function apply(ctx: Context, config: Config) {
         if (options.endTime) {
           const endParts = options.endTime.split('-');
           if (endParts.length !== 3) throw new Error('Invalid end time');
-          endTime = new Date(parseInt(endParts[0]), parseInt(endParts[1]) - 1, parseInt(endParts[2]), 0, 0, 0);
+          endTime = new Date(parseInt(endParts[0]), parseInt(endParts[1]) - 1, parseInt(endParts[2]), 23, 59, 59);
           if (isNaN(endTime.getTime())) throw new Error('Invalid end time');
         } else {
           endTime = new Date(startTime);
           endTime.setDate(endTime.getDate() + 7);
+          endTime.setHours(23, 59, 59);
         }
 
         if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {

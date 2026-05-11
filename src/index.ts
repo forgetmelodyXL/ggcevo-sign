@@ -654,25 +654,23 @@ export function apply(ctx: Context, config: Config) {
             const rand = Math.random() * 100;
 
             if (rand < 70) {
-              rewards.push({ itemId: 1, count: 5 });
-              totalGold += 5;
-            } else if (rand < 80) {
               rewards.push({ itemId: 1, count: 10 });
               totalGold += 10;
-            } else if (rand < 85) {
+            } else if (rand < 90) {
               rewards.push({ itemId: 1, count: 20 });
               totalGold += 20;
-            } else if (rand < 89.5) {
+            } else if (rand < 98) {
+              rewards.push({ itemId: 1, count: 50 });
+              totalGold += 50;
+            } else if (rand < 99.5) {
               rewards.push({ itemId: 1, count: 100 });
               totalGold += 100;
-            } else if (rand < 90) {
+            } else {
               rewards.push({ itemId: 3, count: 1 });
               totalCoupon += 1;
               gotSSR = true;
               pityCounter = 0;
               rareHitCount++;
-            } else {
-              nothingCount++;
             }
           }
         }
@@ -1042,12 +1040,11 @@ export function apply(ctx: Context, config: Config) {
       message += `─────────────\n`;
       message += `【普通池】ID:2 消耗：1咕咕币/次\n`;
       message += `  保底：90次必出 兑换券\n`;
-      message += `  70% 获得 5 金币\n`;
-      message += `  10% 获得 10 金币\n`;
-      message += `  5% 获得 20 金币\n`;
-      message += `  4.5% 获得 100 金币\n`;
+      message += `  70% 获得 10 金币\n`;
+      message += `  20% 获得 20 金币\n`;
+      message += `  8% 获得 50 金币\n`;
+      message += `  1.5% 获得 100 金币\n`;
       message += `  0.5% 获得 兑换券\n`;
-      message += `  10% 空手而归\n`;
       message += `─────────────\n`;
       message += `【皮肤池】ID:3 消耗：3兑换券/次\n`;
       message += `  70% 获得 T3 皮肤\n`;

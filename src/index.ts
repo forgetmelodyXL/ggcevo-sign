@@ -1389,7 +1389,26 @@ export function apply(ctx: Context, config: Config) {
 
       const earliestMissedDate = missedDates[0];
 
-      const gugubReward = 3;
+      const [summary] = await ctx.database.get('ggcevo_signin_summary', { user_id: handle });
+      let currentMonthDays = 0;
+      if (summary && summary.current_month === currentMonthNum) {
+        currentMonthDays = summary.month_days;
+      }
+      const newMonthDaysAfterMakeup = currentMonthDays + 1;
+
+      const monthRewardConfig: Record<number, number> = {
+        7: 1,
+        14: 2,
+        21: 3,
+        28: 4,
+      };
+
+      let gugubReward = 3;
+      let extraGugubReward = 0;
+      if (monthRewardConfig[newMonthDaysAfterMakeup]) {
+        extraGugubReward = monthRewardConfig[newMonthDaysAfterMakeup];
+        gugubReward += extraGugubReward;
+      }
 
       await ctx.database.upsert('ggcevo_backpack', [{
         id: makeupCoupon.id,
@@ -1423,15 +1442,9 @@ export function apply(ctx: Context, config: Config) {
         });
       }
 
-      const [summary] = await ctx.database.get('ggcevo_signin_summary', { user_id: handle });
-      let newMonthDays = 1;
+      let newMonthDays = newMonthDaysAfterMakeup;
       let newTotalDays = 1;
       if (summary) {
-        if (summary.current_month === currentMonthNum) {
-          newMonthDays = summary.month_days + 1;
-        } else {
-          newMonthDays = 1;
-        }
         newTotalDays = summary.total_days + 1;
       }
 
@@ -1447,7 +1460,11 @@ export function apply(ctx: Context, config: Config) {
       }]);
 
       const dateStr = earliestMissedDate.toLocaleDateString('zh-CN');
-      return `🎁 补签成功！\n补签日期：${dateStr}\n消耗：1 补签券\n获得：${gugubReward} 咕咕币\n本月签到：${newMonthDays} 天\n累计签到：${newTotalDays} 天`;
+      let message = `🎁 补签成功！\n补签日期：${dateStr}\n消耗：1 补签券\n获得：3 咕咕币\n本月签到：${newMonthDays} 天\n累计签到：${newTotalDays} 天`;
+      if (extraGugubReward > 0) {
+        message += `\n⭐ 本月第${newMonthDays}次签到额外奖励：${extraGugubReward} 咕咕币`;
+      }
+      return message;
     });
 
 }

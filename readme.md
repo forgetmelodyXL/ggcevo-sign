@@ -94,6 +94,9 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### ✨ 1.0.9
+  - 修复补签累计签到奖励bug：补签第7/14/21/28天时可获得对应额外咕咕币奖励
+
 ### ✨ 1.0.8
   - 普通池概率调整：10金币70%、20金币20%、50金币8%、100金币1.5%、兑换券0.5%
   - 移除普通池空手而归情况，每次抽奖必获得奖励

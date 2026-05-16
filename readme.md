@@ -94,6 +94,9 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### ✨ 1.0.10
+  - 活动列表显示优化：有限量的活动显示"限量：x已领取/总份数"，无限制的活动不显示领取信息
+
 ### ✨ 1.0.9
   - 修复补签累计签到奖励bug：补签第7/14/21/28天时可获得对应额外咕咕币奖励
 

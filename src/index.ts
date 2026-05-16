@@ -1324,16 +1324,16 @@ export function apply(ctx: Context, config: Config) {
         if (activity.max_claims > 0) {
           const claimLogs = await ctx.database.get('ggcevo_activity_claim_log', { activity_id: activity.id });
           const claimCount = claimLogs.length;
-          claimsInfo = `(${claimCount}/${activity.max_claims})`;
-        } else {
-          claimsInfo = '(无限制)';
+          claimsInfo = `x${claimCount}/${activity.max_claims}`;
         }
 
         message += `【${activity.id}】${activity.name} ${status}\n`;
         message += `  描述：${activity.description}\n`;
         message += `  奖励：${rewardItemName} x${activity.reward_amount}\n`;
         message += `  时间：${startTime.toLocaleDateString('zh-CN')} ~ ${endTime.toLocaleDateString('zh-CN')}\n`;
-        message += `  领取：${claimsInfo}\n`;
+        if (claimsInfo) {
+          message += `  限量：${claimsInfo}\n`;
+        }
         message += `─────────────\n`;
       }
 

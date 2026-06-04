@@ -94,6 +94,9 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### ✨ 1.0.13
+  - 添加防呆提醒机制：在所有需要绑定句柄的指令中，未绑定时会提示使用 `绑定句柄` 命令进行绑定
+
 ### ✨ 1.0.10
   - 活动列表显示优化：有限量的活动显示"限量：x已领取/总份数"，无限制的活动不显示领取信息
 

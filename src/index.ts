@@ -259,7 +259,7 @@ export function apply(ctx: Context, config: Config) {
       const session = argv.session;
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       const now = new Date();
@@ -383,7 +383,7 @@ export function apply(ctx: Context, config: Config) {
 
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       if (!name) {
@@ -452,7 +452,7 @@ export function apply(ctx: Context, config: Config) {
 
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       const poolName = LotteryPoolConfig[poolId] || '未知池';
@@ -885,7 +885,7 @@ export function apply(ctx: Context, config: Config) {
       const session = argv.session;
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       const backpackItems = await ctx.database.get('ggcevo_backpack', { user_id: handle });
@@ -909,7 +909,7 @@ export function apply(ctx: Context, config: Config) {
       const session = argv.session;
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       const username = session.username || '未知用户';
@@ -979,7 +979,7 @@ export function apply(ctx: Context, config: Config) {
       const session = argv.session;
       const senderHandle = await getHandle(session);
       if (!senderHandle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       if (count <= 0) {
@@ -1228,7 +1228,7 @@ export function apply(ctx: Context, config: Config) {
       const session = argv.session;
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       if (activityId === undefined || activityId === null) {
@@ -1345,7 +1345,7 @@ export function apply(ctx: Context, config: Config) {
       const session = argv.session;
       const handle = await getHandle(session);
       if (!handle) {
-        return '🔒 需要先绑定游戏句柄。';
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
       const now = new Date();

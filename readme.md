@@ -94,6 +94,10 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### ✨ 1.0.14
+  - 兑换功能新增工作日限制：仅限周一至周五兑换，周六日禁止兑换
+  - 兑换列表新增工作日限制提示
+
 ### ✨ 1.0.13
   - 添加防呆提醒机制：在所有需要绑定句柄的指令中，未绑定时会提示使用 `绑定句柄` 命令进行绑定
 

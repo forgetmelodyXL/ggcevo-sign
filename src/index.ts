@@ -386,6 +386,12 @@ export function apply(ctx: Context, config: Config) {
         return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
       }
 
+      const now = new Date();
+      const dayOfWeek = now.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        return '❌ 兑换功能仅限工作日使用（周一至周五），请在工作日再来兑换！';
+      }
+
       if (!name) {
         return '❌ 请输入兑换物品的名称！\n使用 `兑换列表` 查看可兑换物品。';
       }
@@ -432,7 +438,6 @@ export function apply(ctx: Context, config: Config) {
         }]);
       }
 
-      const now = new Date();
       await ctx.database.create('ggcevo_exchange_log', {
         user_id: handle,
         exchange_id: Number(id),
@@ -1141,6 +1146,7 @@ export function apply(ctx: Context, config: Config) {
       }
       message += `─────────────\n`;
       message += `⚠️ 限定物品不可兑换\n`;
+      message += `⚠️ 兑换功能仅限工作日使用（周一至周五）\n`;
       return message;
     });
 

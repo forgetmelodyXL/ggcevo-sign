@@ -136,6 +136,7 @@ export interface Activity {
   start_time: Date // 开始时间
   end_time: Date // 结束时间
   max_claims: number // 总领取上限（0=无限制）
+  required_group: string // 限制领取的群聊ID（空字符串=无限制）
   created_at: Date // 创建时间
 }
 
@@ -238,6 +239,7 @@ export function apply(ctx: Context, config: Config) {
     start_time: 'timestamp',
     end_time: 'timestamp',
     max_claims: 'unsigned',
+    required_group: 'string',
     created_at: 'timestamp',
   }, {
     primary: 'id',
@@ -1158,11 +1160,12 @@ export function apply(ctx: Context, config: Config) {
     .option('startTime', '-s <startTime:string> 开始时间 (格式: YYYY-MM-DD)')
     .option('endTime', '-e <endTime:string> 结束时间 (格式: YYYY-MM-DD)')
     .option('maxClaims', '-m <maxClaims:number> 总领取上限 (0=无限制)')
+    .option('requiredGroup', '-g <requiredGroup:string> 限制领取的群聊ID (空=无限制)')
     .action(async (argv) => {
       const { options } = argv;
 
       if (!options.name || !options.description || options.rewardItem === undefined || options.rewardAmount === undefined) {
-        return `❌ 参数不足！\n格式：创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> [-s <开始时间>] [-e <结束时间>] [-m <领取上限>]\n示例：创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100\n（开始时间默认当天，结束时间默认7天后，领取上限默认0次=无限制）`;
+        return `❌ 参数不足！\n格式：创建活动 -n <活动名称> -d <活动描述> -r <奖励物品ID> -a <奖励数量> [-s <开始时间>] [-e <结束时间>] [-m <领取上限>] [-g <限制群聊ID>]\n示例：创建活动 -n 每日签到 -d 签到领取奖励 -r 1 -a 100\n（开始时间默认当天，结束时间默认7天后，领取上限默认0次=无限制，群聊ID为空则无限制）`;
       }
 
       const rewardItemId = options.rewardItem;
@@ -1177,6 +1180,7 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const maxClaims = options.maxClaims !== undefined ? options.maxClaims : 0;
+      const requiredGroup = options.requiredGroup || '';
 
       let startTime: Date;
       let endTime: Date;
@@ -1222,11 +1226,13 @@ export function apply(ctx: Context, config: Config) {
         start_time: startTime,
         end_time: endTime,
         max_claims: maxClaims,
+        required_group: requiredGroup,
         created_at: now,
       });
 
       const maxClaimsText = maxClaims === 0 ? '无限制' : `${maxClaims}次`;
-      return `✅ 活动创建成功！\n─────────────\n📛 活动名称：${options.name}\n📝 活动描述：${options.description}\n🎁 奖励物品：${itemName} x${rewardAmount}\n⏰ 开始时间：${startTime.toLocaleString('zh-CN')}\n⏰ 结束时间：${endTime.toLocaleString('zh-CN')}\n📊 总领取上限：${maxClaimsText}`;
+      const requiredGroupText = requiredGroup === '' ? '无限制' : requiredGroup;
+      return `✅ 活动创建成功！\n─────────────\n📛 活动名称：${options.name}\n📝 活动描述：${options.description}\n🎁 奖励物品：${itemName} x${rewardAmount}\n⏰ 开始时间：${startTime.toLocaleString('zh-CN')}\n⏰ 结束时间：${endTime.toLocaleString('zh-CN')}\n📊 总领取上限：${maxClaimsText}\n👥 限制群聊：${requiredGroupText}`;
     });
 
   ctx.command('sign/领取活动 [activityId:number]')
@@ -1256,6 +1262,16 @@ export function apply(ctx: Context, config: Config) {
 
       if (now > endTime) {
         return `⏱️ 活动已结束，结束时间：${endTime.toLocaleString('zh-CN')}`;
+      }
+
+      if (activity.required_group && activity.required_group !== '') {
+        const currentChannelId = session.channelId || (session.event?.channel?.id as string);
+        if (!currentChannelId) {
+          return `❌ 无法获取当前群聊信息！`;
+        }
+        if (currentChannelId !== activity.required_group) {
+          return `❌ 该活动仅限在指定群聊内领取！\n请前往群聊ID: ${activity.required_group} 领取`;
+        }
       }
 
       if (activity.max_claims > 0) {
@@ -1330,16 +1346,20 @@ export function apply(ctx: Context, config: Config) {
         if (activity.max_claims > 0) {
           const claimLogs = await ctx.database.get('ggcevo_activity_claim_log', { activity_id: activity.id });
           const claimCount = claimLogs.length;
-          claimsInfo = `x${claimCount}/${activity.max_claims}`;
+          const remainingCount = activity.max_claims - claimCount;
+          claimsInfo = `${remainingCount}/${activity.max_claims}`;
         }
+
+        const requiredGroupText = (activity.required_group && activity.required_group !== '') ? activity.required_group : '无限制';
 
         message += `【${activity.id}】${activity.name} ${status}\n`;
         message += `  描述：${activity.description}\n`;
         message += `  奖励：${rewardItemName} x${activity.reward_amount}\n`;
         message += `  时间：${startTime.toLocaleDateString('zh-CN')} ~ ${endTime.toLocaleDateString('zh-CN')}\n`;
         if (claimsInfo) {
-          message += `  限量：${claimsInfo}\n`;
+          message += `  剩余：${claimsInfo}\n`;
         }
+        message += `  限制群聊：${requiredGroupText}\n`;
         message += `─────────────\n`;
       }
 

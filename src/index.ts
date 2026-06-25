@@ -981,52 +981,67 @@ export function apply(ctx: Context, config: Config) {
       return message;
     });
 
-  ctx.command('sign/给予 <targetId:string> <itemId:number> <count:number>', { authority: 3 })
+  ctx.command('sign/给予 <targetId> <itemId> <count:number>', { authority: 3 })
     .action(async (argv, targetId, itemId, count) => {
       const session = argv.session;
-      const senderHandle = await getHandle(session);
-      if (!senderHandle) {
-        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
+
+      // 解析 targetId：支持 @ 提及获取 handles
+      let resolvedTargetId = targetId;
+      const atElements = session.elements?.filter(e => e.type === 'at');
+      if (atElements && atElements.length > 0) {
+        const mentionedUserId = atElements[0].attrs.id;
+        const [profile] = await ctx.database.get('sc2arcade_player', { userId: mentionedUserId, isActive: true });
+        if (profile) {
+          resolvedTargetId = `${profile.regionId}-S2-${profile.realmId}-${profile.profileId}`;
+        } else {
+          return '❌ @提及的用户未绑定游戏句柄！';
+        }
+      }
+
+      // 解析 itemId：支持数字 ID 或名称匹配
+      let resolvedItemId: number;
+      const parsedId = parseInt(itemId);
+      if (!isNaN(parsedId)) {
+        resolvedItemId = parsedId;
+      } else {
+        // 按名称在 ItemConfig 和 ExchangeConfig 中匹配
+        const itemConfigEntry = Object.entries(ItemConfig).find(([_, name]) => name === itemId);
+        if (itemConfigEntry) {
+          resolvedItemId = parseInt(itemConfigEntry[0]);
+        } else {
+          const exchangeConfigEntry = Object.entries(ExchangeConfig).find(([_, item]) => item.name === itemId);
+          if (exchangeConfigEntry) {
+            resolvedItemId = parseInt(exchangeConfigEntry[0]);
+          } else {
+            return `❌ 未找到名为 "${itemId}" 的物品！`;
+          }
+        }
+      }
+
+      const itemName = ItemConfig[resolvedItemId] || ExchangeConfig[resolvedItemId]?.name;
+      if (!itemName) {
+        return `❌ 不存在ID为 ${resolvedItemId} 的物品！`;
       }
 
       if (count <= 0) {
         return '❌ 数量必须大于0！';
       }
 
-      const itemName = ItemConfig[itemId];
-      if (!itemName) {
-        return `❌ 不存在ID为 ${itemId} 的物品！`;
-      }
-
-      const [senderItem] = await ctx.database.get('ggcevo_backpack', { user_id: senderHandle, item_id: itemId });
-      const senderCount = senderItem?.count || 0;
-
-      if (senderCount < count) {
-        return `❌ ${itemName}不足！需要 ${count} 个，当前拥有 ${senderCount} 个。`;
-      }
-
-      const newSenderCount = senderCount - count;
-      if (senderItem) {
-        await ctx.database.upsert('ggcevo_backpack', [{
-          id: senderItem.id,
-          user_id: senderHandle, item_id: itemId, count: newSenderCount
-        }]);
-      }
-
-      const [targetItem] = await ctx.database.get('ggcevo_backpack', { user_id: targetId, item_id: itemId });
+      // 管理员直接给予虚空物品（不从发送者背包扣除）
+      const [targetItem] = await ctx.database.get('ggcevo_backpack', { user_id: resolvedTargetId, item_id: resolvedItemId });
       const targetCount = (targetItem?.count || 0) + count;
       if (targetItem) {
         await ctx.database.upsert('ggcevo_backpack', [{
           id: targetItem.id,
-          user_id: targetId, item_id: itemId, count: targetCount
+          user_id: resolvedTargetId, item_id: resolvedItemId, count: targetCount
         }]);
       } else {
         await ctx.database.create('ggcevo_backpack', {
-          user_id: targetId, item_id: itemId, count: targetCount
+          user_id: resolvedTargetId, item_id: resolvedItemId, count: targetCount
         });
       }
 
-      return `✅ 成功给予 ${targetId} ${count} 个${itemName}！`;
+      return `✅ 成功给予 ${resolvedTargetId} ${count} 个${itemName}！`;
     });
 
   ctx.command('sign/抽奖概率')

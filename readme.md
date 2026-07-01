@@ -95,6 +95,9 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### 🐛 1.1.0
+  - 修复补签月末最后一天查询遗漏 bug：`endOfMonth` 改为当日 23:59:59.999，避免月末下午签到后补签误判漏签导致 month_days 超出当月天数
+
 ### ✨ 1.0.17
   - 给予指令改为管理员虚空给予：不再从发送者背包扣除，直接生成物品
   - 给予指令 targetId 支持 @ 提及：可 @ 目标用户自动获取其游戏句柄

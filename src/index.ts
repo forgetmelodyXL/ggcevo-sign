@@ -1401,7 +1401,7 @@ export function apply(ctx: Context, config: Config) {
       }
 
       const startOfMonth = new Date(currentYear, currentMonth, 1);
-      const endOfMonth = new Date(currentYear, currentMonth + 1, 0);
+      const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59, 999);
 
       const existingLogs = await ctx.database.get('ggcevo_signin_log', {
         user_id: handle,

@@ -1175,6 +1175,7 @@ export function apply(ctx: Context, config: Config) {
       message += `─────────────\n`;
       message += `⚠️ 限定物品不可兑换\n`;
       message += `⚠️ 兑换功能仅限工作日使用（周一至周五）\n`;
+      message += `⚠️ 兑换完成后请找活动管理员登记\n`;
       message += `⚠️ 兑换实装进咕咕虫将在休息日完成（周六/周日）\n`;
       return message;
     });

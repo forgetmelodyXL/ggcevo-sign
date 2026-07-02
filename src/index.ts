@@ -26,12 +26,13 @@ export const LotteryPoolConfig: Record<number, string> = {
 }
 
 export type ItemQuality = 't0' | 't1' | 't2' | 't3' | '限定'
-export type ItemType = '皮肤' | '入场特效' | '物品' | '宠物'
+export type ItemType = '皮肤' | '入场特效' | '物品' | '宠物' | '角色名称'
 
 export interface ExchangeItem {
   name: string
   quality: ItemQuality
   type: ItemType
+  cost?: number
 }
 
 export const ExchangeConfig: Record<number, ExchangeItem> = {
@@ -56,6 +57,7 @@ export const ExchangeConfig: Record<number, ExchangeItem> = {
   19: { name: '妙蛙种子', quality: 't0', type: '宠物' },
   20: { name: '皮卡丘', quality: 't0', type: '宠物' },
   21: { name: '哆啦A梦', quality: 't0', type: '宠物' },
+  22: { name: '角色冠名权', quality: 't0', type: '角色名称', cost: 10 },
 }
 
 declare module 'koishi' {
@@ -423,7 +425,7 @@ export function apply(ctx: Context, config: Config) {
         't1': 5,
         't0': 6,
       };
-      const costCount = costMap[exchangeItem.quality];
+      const costCount = exchangeItem.cost ?? costMap[exchangeItem.quality];
 
       const [couponItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: 3 });
       const couponCount = couponItem?.count || 0;
@@ -1156,14 +1158,24 @@ export function apply(ctx: Context, config: Config) {
         message += `  ${item.name}\n`;
       }
       message += `─────────────\n`;
-      message += `【物品】消耗：6 兑换券\n`;
+      message += `【角色名称】\n`;
+      const costMap: Record<string, number> = { 't3': 3, 't2': 4, 't1': 5, 't0': 6 };
+      const roleNames = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '角色名称');
+      for (const [id, item] of roleNames) {
+        const cost = item.cost ?? costMap[item.quality];
+        message += `  ${item.name}（消耗：${cost} 兑换券）\n`;
+      }
+      message += `─────────────\n`;
+      message += `【物品】\n`;
       const items = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '物品');
       for (const [id, item] of items) {
-        message += `  ${item.name}\n`;
+        const cost = item.cost ?? costMap[item.quality];
+        message += `  ${item.name}（消耗：${cost} 兑换券）\n`;
       }
       message += `─────────────\n`;
       message += `⚠️ 限定物品不可兑换\n`;
       message += `⚠️ 兑换功能仅限工作日使用（周一至周五）\n`;
+      message += `⚠️ 兑换实装进咕咕虫将在休息日完成（周六/周日）\n`;
       return message;
     });
 

@@ -97,6 +97,10 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### ✨ 1.1.2
+  - 金币池抽奖改为默认10连抽，指定次数必须为10的倍数
+  - 兑换列表新增管理员登记提示
+
 ### ✨ 1.1.1
   - 新增可兑换物品：角色冠名权（T0/角色名称，消耗 10 兑换券）
   - 兑换列表新增角色名称分类

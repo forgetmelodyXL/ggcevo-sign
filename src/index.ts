@@ -513,7 +513,7 @@ export function apply(ctx: Context, config: Config) {
         }
         drawCount = count;
       } else {
-        if (maxDrawCount <= 0) {
+        if (maxDrawCount <= 0 || (isGoldPool && maxDrawCount < 10)) {
           let costItemName: string;
           if (isGoldPool) {
             costItemName = '金币';

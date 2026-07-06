@@ -515,14 +515,18 @@ export function apply(ctx: Context, config: Config) {
       } else {
         if (maxDrawCount <= 0 || (isGoldPool && maxDrawCount < 10)) {
           let costItemName: string;
+          let required: number;
           if (isGoldPool) {
             costItemName = '金币';
+            required = 10 * costPerDraw;
           } else if (isSkinPool || isPetPool) {
             costItemName = '兑换券';
+            required = 1 * costPerDraw;
           } else {
             costItemName = '咕咕币';
+            required = 1 * costPerDraw;
           }
-          return `❌ ${costItemName}不足，请先获取${costItemName}！`;
+          return `❌ ${costItemName}不足，当前拥有 ${costItemCount} ${costItemName}，至少需要 ${required} ${costItemName}！`;
         }
         const isNormalPool = !isGoldPool && !isSkinPool && !isPetPool;
         drawCount = isGoldPool ? 10 : (isNormalPool ? maxDrawCount : 1);

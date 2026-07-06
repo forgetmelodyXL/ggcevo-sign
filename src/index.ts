@@ -497,6 +497,9 @@ export function apply(ctx: Context, config: Config) {
         if (count <= 0) {
           return '❌ 抽奖次数必须大于0！';
         }
+        if (isGoldPool && count % 10 !== 0) {
+          return '❌ 金币池仅支持10连抽，抽奖次数必须为10的倍数（如10、20、30...）！';
+        }
         if (count > maxDrawCount) {
           let costItemName: string;
           if (isGoldPool) {
@@ -522,7 +525,7 @@ export function apply(ctx: Context, config: Config) {
           return `❌ ${costItemName}不足，请先获取${costItemName}！`;
         }
         const isNormalPool = !isGoldPool && !isSkinPool && !isPetPool;
-        drawCount = isNormalPool ? maxDrawCount : 1;
+        drawCount = isGoldPool ? 10 : (isNormalPool ? maxDrawCount : 1);
       }
 
       const now = new Date();
@@ -1053,7 +1056,7 @@ export function apply(ctx: Context, config: Config) {
       message += `【使用方法】\n`;
       message += `  抽奖 [-p 奖池ID] [-c 次数]\n`;
       message += `  -p 指定奖池（默认普通池）：1=金币池，2=普通池，3=皮肤池，4=宠物池\n`;
-      message += `  -c 指定抽奖次数（非普通池默认单抽，普通池默认全抽）\n`;
+      message += `  -c 指定抽奖次数（金币池默认10连抽，普通池默认全抽，皮肤/宠物池默认单抽）\n`;
       message += `─────────────\n`;
       message += `【金币池】ID:1 消耗：100金币/次\n`;
       message += `  20% 空手而归\n`;

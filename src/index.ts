@@ -271,6 +271,7 @@ export function apply(ctx: Context, config: Config) {
 
       const [existingLog] = await ctx.database.get('ggcevo_signin_log', {
         user_id: handle,
+        signin_type: 0,
         signin_date: { $gte: today },
       });
 
@@ -1437,7 +1438,7 @@ export function apply(ctx: Context, config: Config) {
 
       const today = new Date(currentYear, currentMonth, now.getDate());
       const missedDates: Date[] = [];
-      for (let d = new Date(startOfMonth); d <= today; d.setDate(d.getDate() + 1)) {
+      for (let d = new Date(startOfMonth); d < today; d.setDate(d.getDate() + 1)) {
         const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
         if (!signedDates.has(dateStr)) {
           missedDates.push(new Date(d));

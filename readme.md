@@ -97,6 +97,16 @@ yarn workspace koishi-plugin-ggcevo-sign add koishi-plugin-sc2arcade-search@"^1.
 <details>
 <summary>点我查看更新日志详情</summary>
 
+### 🐛 1.1.6
+  - 修复补签误将今天当作可补签日期，导致先补签后无法正常签到
+  - 签到检查增加 `signin_type` 过滤，防止补签记录干扰签到判断
+
+### 🐛 1.1.4
+  - 金币池不足提示优化：显示当前拥有数量和所需数量
+
+### 🐛 1.1.3
+  - 修复金币池默认10连抽时金币不足1000导致数据库 Out of range 错误
+
 ### ✨ 1.1.2
   - 金币池抽奖改为默认10连抽，指定次数必须为10的倍数
   - 兑换列表新增管理员登记提示

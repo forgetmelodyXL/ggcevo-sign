@@ -16,6 +16,7 @@ export const ItemConfig: Record<number, string> = {
   2: '咕咕币',
   3: '兑换券',
   9: '补签券',
+  23: '赎罪券',
 }
 
 export const LotteryPoolConfig: Record<number, string> = {
@@ -26,7 +27,7 @@ export const LotteryPoolConfig: Record<number, string> = {
 }
 
 export type ItemQuality = 't0' | 't1' | 't2' | 't3' | '限定'
-export type ItemType = '皮肤' | '入场特效' | '物品' | '宠物' | '角色名称'
+export type ItemType = '皮肤' | '入场特效' | '物品' | '宠物' | '角色名称' | '道具'
 
 export interface ExchangeItem {
   name: string
@@ -58,6 +59,7 @@ export const ExchangeConfig: Record<number, ExchangeItem> = {
   20: { name: '皮卡丘', quality: 't0', type: '宠物' },
   21: { name: '哆啦A梦', quality: 't0', type: '宠物' },
   22: { name: '角色冠名权', quality: 't0', type: '角色名称', cost: 10 },
+  23: { name: '赎罪券', quality: 't0', type: '道具', cost: 2 },
 }
 
 declare module 'koishi' {
@@ -435,12 +437,65 @@ export function apply(ctx: Context, config: Config) {
         return `❌ 兑换券不足！需要 ${costCount} 张兑换券，当前拥有 ${couponCount} 张。`;
       }
 
+      if (exchangeItem.type === '道具') {
+        const itemId = Number(id);
+
+        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+        const [thisMonthExchange] = await ctx.database.get('ggcevo_exchange_log', {
+          user_id: handle,
+          exchange_id: itemId,
+          cost_type: 3,
+          create_time: { $gte: startOfMonth, $lte: endOfMonth },
+        });
+        if (thisMonthExchange) {
+          return `❌ 本月已兑换过 ${exchangeItem.name}，每月仅限兑换1个！`;
+        }
+
+        const [backpackItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: itemId });
+        if (backpackItem && backpackItem.count >= 1) {
+          return `❌ 你已经拥有 ${exchangeItem.name}，使用后才可以再次兑换！`;
+        }
+      } else if (exchangeItem.type !== '角色名称') {
+        const [alreadyOwned] = await ctx.database.get('ggcevo_exchange_log', {
+          user_id: handle,
+          exchange_id: Number(id),
+        });
+        if (alreadyOwned) {
+          return `❌ 你已经拥有 ${exchangeItem.name}，不可重复兑换！`;
+        }
+      }
+
       const newCouponCount = couponCount - costCount;
       if (couponItem) {
         await ctx.database.upsert('ggcevo_backpack', [{
           id: couponItem.id,
           user_id: handle, item_id: 3, count: newCouponCount
         }]);
+      }
+
+      if (exchangeItem.type === '道具') {
+        const itemId = Number(id);
+        const [existingBackpack] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: itemId });
+        if (existingBackpack) {
+          await ctx.database.upsert('ggcevo_backpack', [{
+            id: existingBackpack.id,
+            user_id: handle, item_id: itemId, count: 1,
+          }]);
+        } else {
+          await ctx.database.create('ggcevo_backpack', {
+            user_id: handle, item_id: itemId, count: 1,
+          });
+        }
+
+        await ctx.database.create('ggcevo_exchange_log', {
+          user_id: handle,
+          exchange_id: itemId,
+          cost_type: 3,
+          create_time: now,
+        });
+
+        return `🎁 兑换成功！\n消耗 ${costCount} 张兑换券\n获得 ${exchangeItem.name}\n💡 使用 \`使用 赎罪券\` 来消耗此道具`;
       }
 
       await ctx.database.create('ggcevo_exchange_log', {
@@ -544,6 +599,22 @@ export function apply(ctx: Context, config: Config) {
       const exchangeLogs = await ctx.database.get('ggcevo_exchange_log', { user_id: handle });
       for (const log of exchangeLogs) {
         ownedItems.add(log.exchange_id);
+      }
+
+      if (isSkinPool) {
+        const allSkinIds = Object.entries(ExchangeConfig)
+          .filter(([_, item]) => item.type === '皮肤' && item.quality !== '限定')
+          .map(([id]) => parseInt(id));
+        if (allSkinIds.length > 0 && allSkinIds.every(id => ownedItems.has(id))) {
+          return '❌ 你已经拥有全部可抽奖的皮肤，无法继续抽奖！';
+        }
+      } else if (isPetPool) {
+        const allPetIds = Object.entries(ExchangeConfig)
+          .filter(([_, item]) => item.type === '宠物')
+          .map(([id]) => parseInt(id));
+        if (allPetIds.length > 0 && allPetIds.every(id => ownedItems.has(id))) {
+          return '❌ 你已经拥有全部可抽奖的宠物，无法继续抽奖！';
+        }
       }
 
       const rewards: { itemId: number; count: number }[] = [];
@@ -970,7 +1041,8 @@ export function apply(ctx: Context, config: Config) {
         message += `🎰 抽奖信息：暂无抽奖记录\n`;
       }
 
-      const exchangeLogs = await ctx.database.get('ggcevo_exchange_log', { user_id: handle });
+      const allExchangeLogs = await ctx.database.get('ggcevo_exchange_log', { user_id: handle });
+      const exchangeLogs = allExchangeLogs.filter(log => log.cost_type !== 3 && log.cost_type !== 4);
       if (exchangeLogs.length > 0) {
         message += `─────────────\n`;
         message += `🎁 兑换记录\n`;
@@ -986,6 +1058,19 @@ export function apply(ctx: Context, config: Config) {
       } else {
         message += `─────────────\n`;
         message += `🎁 兑换记录：暂无兑换记录\n`;
+      }
+
+      const atonementLogs = allExchangeLogs.filter(log => log.cost_type === 4);
+      if (atonementLogs.length > 0) {
+        message += `─────────────\n`;
+        message += `📿 赎罪券使用记录\n`;
+        const sortedAtonementLogs = atonementLogs.sort((a, b) =>
+          new Date(b.create_time).getTime() - new Date(a.create_time).getTime()
+        ).slice(0, 3);
+        for (const log of sortedAtonementLogs) {
+          const createTime = new Date(log.create_time).toLocaleString('zh-CN');
+          message += `  ${createTime}\n`;
+        }
       }
 
       return message;
@@ -1177,6 +1262,13 @@ export function apply(ctx: Context, config: Config) {
       message += `【物品】\n`;
       const items = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '物品');
       for (const [id, item] of items) {
+        const cost = item.cost ?? costMap[item.quality];
+        message += `  ${item.name}（消耗：${cost} 兑换券）\n`;
+      }
+      message += `─────────────\n`;
+      message += `【道具】\n`;
+      const props = Object.entries(ExchangeConfig).filter(([_, item]) => item.type === '道具');
+      for (const [id, item] of props) {
         const cost = item.cost ?? costMap[item.quality];
         message += `  ${item.name}（消耗：${cost} 兑换券）\n`;
       }
@@ -1527,6 +1619,53 @@ export function apply(ctx: Context, config: Config) {
         message += `\n⭐ 本月第${newMonthDays}次签到额外奖励：${extraGugubReward} 咕咕币`;
       }
       return message;
+    });
+
+  ctx.command('sign/使用 <name:string>')
+    .action(async (argv, name) => {
+      const session = argv.session;
+
+      const handle = await getHandle(session);
+      if (!handle) {
+        return '🔒 需要先绑定游戏句柄。\n💡 使用 `绑定句柄` 命令进行绑定。';
+      }
+
+      if (!name || name !== '赎罪券') {
+        return '❌ 仅支持使用赎罪券！\n💡 输入 `使用 赎罪券` 来消耗此道具。';
+      }
+
+      const itemId = 23;
+      const [backpackItem] = await ctx.database.get('ggcevo_backpack', { user_id: handle, item_id: itemId });
+      const itemCount = backpackItem?.count || 0;
+      if (itemCount <= 0) {
+        return '❌ 你没有赎罪券！请先通过兑换获取。';
+      }
+
+      await session.send('⚠️ 使用赎罪券后，请在 2 小时内联系活动管理员，否则视为作废使用！\n💬 输入 "确认" 继续使用，输入其他内容取消。');
+      const confirm = await session.prompt(120000);
+      if (!confirm || confirm.trim() !== '确认') {
+        return '❌ 已取消使用赎罪券。';
+      }
+
+      const now = new Date();
+      const newCount = itemCount - 1;
+      if (newCount <= 0) {
+        await ctx.database.remove('ggcevo_backpack', { id: backpackItem.id });
+      } else {
+        await ctx.database.upsert('ggcevo_backpack', [{
+          id: backpackItem.id,
+          user_id: handle, item_id: itemId, count: newCount,
+        }]);
+      }
+
+      await ctx.database.create('ggcevo_exchange_log', {
+        user_id: handle,
+        exchange_id: itemId,
+        cost_type: 4,
+        create_time: now,
+      });
+
+      return `✅ 赎罪券使用成功！`;
     });
 
 }
